@@ -4,20 +4,21 @@
  */
 import { recalcular, round2, type ModoRecalculo } from '../domain/amortizacion'
 import { distribuirPago, estadoOperacion, TASA_MORA_DIARIA, tramoDe, TRAMOS } from '../domain/cartera'
-import { addDays, addMonths, diffDays, endOfMonth, fmtMes, monthKey, startOfMonth, type ISODate } from '../domain/fechas'
+import { addDays, addMonths, diffDays, endOfMonth, fmtMes, monthKey, nombreMes, startOfMonth, type ISODate } from '../domain/fechas'
 import { CANALES_GESTION, enHorario, hayContacto, MOTIVOS, pideMotivo, planConvenio, prioridad, renderPlantilla, RESULTADOS } from '../domain/cobranza'
 import { diferencias, mesesDesdeActualizacion, normalizar, VIGENCIA_SOCIO_MESES } from '../domain/clientes'
+import { cuadra, invertir, lineasSegun, nivelDe, siguienteCodigo } from '../domain/contabilidad'
 import { CATEGORIAS, categoriaDe, ESTADOS, estimarMatriz, estresar, LGD, provisionDe, proyectar, type EstadoRodamiento } from '../domain/provisiones'
 import { evaluarRiesgo, type Banda, type EntradaRiesgo, type HistorialPago, type ResultadoRiesgo } from '../domain/riesgo'
 import { COBERTURA_MINIMA, detallePago, saldosOperacion, tablaDevengo, valorCuotas } from '../domain/operacion'
 import { costos, primerVencimiento, tablaObligacion, validarPaso, PASOS_OBLIGACION, type DatosObligacion, type ProductoCredito } from '../domain/obligacion'
+import type { Asiento, Cuenta, EventoContable, LineaAsiento } from '../domain/tipos'
 import type { CanalGestion, Convenio, Gestion, MotivoNoPago, PasoEstrategia, Plantilla, ResultadoGestion } from '../domain/tipos'
 import type { CambioCliente, Cliente, DatosCliente, EstadoOperacion, GarantiasOperacion, LoteRecaudo, MedioPago, Operacion, Pago, Promesa, Tramo } from '../domain/tipos'
 import { dinero } from '../lib/formato'
 import { CIUDADES, CONDICIONES_PRODUCTO, GESTORES, HOY, MEDIOS, PRODUCTOS, USUARIA_DEMO } from '../mocks/catalogos'
 import { ACTIVIDADES, PROVINCIA_DE, RELACIONES } from '../mocks/fichas'
 import { db, notificar, version } from '../mocks/db'
-import { asientoDePago } from '../mocks/generar'
 
 const LATENCIA = 140
 const esperar = <T,>(valor: T): Promise<T> => new Promise((r) => setTimeout(() => r(valor), LATENCIA))
@@ -28,6 +29,7 @@ export const fechaCorte = () => HOY
 export interface OperacionVista extends Operacion, EstadoOperacion {
   cliente: Cliente
   tieneJuicio: boolean
+  castigada: boolean
 }
 
 // Índice de pagos por operación; se rehace cuando cambia la base o la cantidad de pagos.
@@ -52,11 +54,13 @@ function vistaOperacion(op: Operacion, corte: ISODate = HOY): OperacionVista {
     ...est,
     cliente: db.clientes.find((c) => c.id === op.clienteId)!,
     tieneJuicio: db.juicios.some((j) => j.operacionId === op.id),
+    castigada: !!op.castigo && op.castigo.fecha <= corte,
   }
 }
 
+/** Cartera a una fecha: sin las operaciones castigadas (salen del balance). */
 function todasLasOperaciones(corte: ISODate = HOY) {
-  return db.operaciones.filter((o) => o.fechaDesembolso <= corte).map((o) => vistaOperacion(o, corte))
+  return db.operaciones.filter((o) => o.fechaDesembolso <= corte && !(o.castigo && o.castigo.fecha <= corte)).map((o) => vistaOperacion(o, corte))
 }
 
 function estadoPromesa(p: Promesa): Promesa['estado'] {
@@ -483,10 +487,6 @@ function lgdDe(opId: string) {
   return g?.garantes.length ? LGD.garante : LGD.ninguna
 }
 
-function provisionRequerida(corte: ISODate) {
-  return round2(todasLasOperaciones(corte).filter((o) => !o.cancelada).reduce((s, o) => s + o.saldoCapital * categoriaDe(o.diasMora).tasa, 0))
-}
-
 const estadoRodamiento = (o: OperacionVista): EstadoRodamiento => (o.cancelada ? 'cancelada' : o.tramo)
 
 /** Matriz de rodamiento con los últimos 12 meses de la cartera. */
@@ -528,7 +528,7 @@ export async function obtenerRiesgo(estres = 0) {
   })
   const saldo = round2(ops.reduce((s, o) => s + o.saldoCapital, 0))
   const requerida = round2(filas.reduce((s, f) => s + f.provision, 0))
-  const constituida = provisionRequerida(endOfMonth(addMonths(HOY, -1)))
+  const constituida = saldoCuenta('1.4.99')
   const vencida = round2(ops.filter((o) => o.diasMora > 30).reduce((s, o) => s + o.saldoCapital, 0))
   const porCategoria = CATEGORIAS.map((c) => {
     const del = filas.filter((f) => f.categoria === c.id)
@@ -606,6 +606,7 @@ export function datosDeudor(clienteId: string) {
 }
 
 export async function crearObligacion(d: DatosObligacion) {
+  verificarPeriodo()
   const p = catalogoProductos.find((x) => x.id === d.producto)!
   const deudor = datosDeudor(d.clienteId)
   if (!deudor) throw new Error('Deudor no encontrado.')
@@ -642,15 +643,9 @@ export async function crearObligacion(d: DatosObligacion) {
     garantes: d.garantes.map((g) => ({ ...g, id: `GA-${nG++}` })),
     reales: d.reales.map((r) => ({ ...r, id: `GR-${nR++}`, estado: r.tipo === 'Hipoteca' ? 'En trámite' : 'Constituida' })),
   })
-  const lineas = [
-    { cuenta: '1.4.01', debe: op.monto, haber: 0 },
-    { cuenta: '1.1.01', debe: 0, haber: c.neto },
-    { cuenta: '4.1.03', debe: 0, haber: c.comision },
-    { cuenta: '2.1.01', debe: 0, haber: c.seguro },
-  ].filter((l) => l.debe > 0 || l.haber > 0)
-  db.asientos.push({
-    id: `AS-${String(db.asientos.length + 1).padStart(5, '0')}`, fecha: HOY, glosa: `Desembolso ${op.producto.toLowerCase()} ${op.id}`,
-    origen: 'Desembolso', referencia: op.id, lineas,
+  registrarAsiento({
+    fecha: HOY, glosa: `Desembolso ${op.producto.toLowerCase()} ${op.id}`, origen: 'Desembolso', referencia: op.id,
+    lineas: lineasSegun(esquemaDe('Desembolso'), { monto: op.monto, neto: c.neto, comision: c.comision, seguro: c.seguro }),
   })
   notificar()
   return esperar(op)
@@ -707,6 +702,7 @@ function nuevoIdPago() {
 const referenciaDemo = () => `DEMO-${Date.now().toString().slice(-6)}`
 
 export async function precancelar(input: { operacionId: string; medio: MedioPago }) {
+  verificarPeriodo()
   const cobro = bloqueoCobro(input.medio)
   if (cobro) throw new Error(cobro)
   const op = db.operaciones.find((o) => o.id === input.operacionId)!
@@ -719,7 +715,7 @@ export async function precancelar(input: { operacionId: string; medio: MedioPago
     medio: input.medio, tipo: 'Precancelación', referencia: referenciaDemo(), conciliado: false, registradoEnDemo: true,
   }
   db.pagos.push(pago)
-  db.asientos.push(asientoDePago(pago, db.asientos.length + 1))
+  registrarAsiento(asientoPago(pago))
   db.garantias.find((x) => x.operacionId === op.id)?.reales.forEach((r) => { r.estado = 'Liberada' })
   notificar()
   return esperar(pago)
@@ -758,6 +754,7 @@ export function simularAbono(operacionId: string, monto: number, modo: ModoRecal
 }
 
 export async function abonarCapital(input: { operacionId: string; monto: number; modo: ModoRecalculo; medio: MedioPago }) {
+  verificarPeriodo()
   const cobro = bloqueoCobro(input.medio)
   if (cobro) throw new Error(cobro)
   const sim = simularAbono(input.operacionId, input.monto, input.modo)
@@ -774,7 +771,7 @@ export async function abonarCapital(input: { operacionId: string; monto: number;
   }]
   op.tabla = sim.tabla
   db.pagos.push(pago)
-  db.asientos.push(asientoDePago(pago, db.asientos.length + 1))
+  registrarAsiento(asientoPago(pago))
   notificar()
   return esperar(pago)
 }
@@ -806,6 +803,7 @@ export function bloqueoCobro(medio: MedioPago): string | null {
 }
 
 function aplicarPago(input: { operacionId: string; monto: number; medio: MedioPago; referencia?: string }): Pago {
+  verificarPeriodo()
   const bloqueo = bloqueoCobro(input.medio)
   if (bloqueo) throw new Error(bloqueo)
   const prev = previsualizarPago(input.operacionId, input.monto)
@@ -826,7 +824,7 @@ function aplicarPago(input: { operacionId: string; monto: number; medio: MedioPa
     registradoEnDemo: true,
   }
   db.pagos.push(pago)
-  db.asientos.push({ ...asientoDePago(pago, db.asientos.length + 1) })
+  registrarAsiento(asientoPago(pago))
   return pago
 }
 
@@ -845,6 +843,7 @@ export function bloqueoReverso(pagoId: string): string | null {
 }
 
 export async function reversarPago(pagoId: string, motivo: string) {
+  verificarPeriodo()
   const bloqueo = bloqueoReverso(pagoId)
   if (bloqueo) throw new Error(bloqueo)
   if (motivo.trim().length < 5) throw new Error('Explica el motivo del reverso.')
@@ -858,10 +857,9 @@ export async function reversarPago(pagoId: string, motivo: string) {
   }
   if (pago.tipo === 'Precancelación') db.garantias.find((g) => g.operacionId === op.id)?.reales.forEach((r) => { r.estado = 'Constituida' })
   const original = db.asientos.find((a) => a.referencia === pago.id)
-  const asientoId = `AS-${String(db.asientos.length + 1).padStart(5, '0')}`
-  db.asientos.push({
-    id: asientoId, fecha: HOY, glosa: `Reverso de ${pago.id}: ${motivo.trim()}`, origen: 'Reverso', referencia: pago.id,
-    lineas: (original?.lineas ?? asientoDePago(pago, 0).lineas).map((l) => ({ cuenta: l.cuenta, debe: l.haber, haber: l.debe })),
+  const asientoId = registrarAsiento({
+    fecha: HOY, glosa: `Reverso de ${pago.id}: ${motivo.trim()}`, origen: 'Reverso', referencia: pago.id,
+    lineas: invertir(original?.lineas ?? asientoPago(pago).lineas),
   })
   db.reversos.push({ pago, fecha: HOY, hora: horaActual(), motivo: motivo.trim(), usuario: USUARIA_DEMO.nombre, asientoId })
   notificar()
@@ -1417,12 +1415,56 @@ export async function guardarPlantilla(id: string, cambios: Partial<Plantilla>) 
 }
 
 // ── Contabilidad ────────────────────────────────────────────────────────────
-export async function obtenerContabilidad() {
-  const saldos = db.planCuentas.map((c) => {
-    const debe = round2(db.asientos.flatMap((a) => a.lineas).filter((l) => l.cuenta === c.codigo).reduce((s, l) => s + l.debe, 0))
-    const haber = round2(db.asientos.flatMap((a) => a.lineas).filter((l) => l.cuenta === c.codigo).reduce((s, l) => s + l.haber, 0))
-    return { ...c, debe, haber, saldo: round2(c.naturaleza === 'Deudora' ? debe - haber : haber - debe) }
+const esquemaDe = (evento: EventoContable) => db.esquemas.find((e) => e.evento === evento)!
+
+/** Asiento de un pago según el esquema contable vigente. */
+function asientoPago(p: Pago): Omit<Asiento, 'id'> {
+  return {
+    fecha: p.fecha, glosa: `Cobro ${p.tipo.toLowerCase()} ${p.operacionId}`, origen: 'Pago', referencia: p.id,
+    lineas: lineasSegun(esquemaDe('Pago'), { total: p.monto, capital: p.capital, interes: p.interes, mora: p.mora }),
+  }
+}
+
+function registrarAsiento(a: Omit<Asiento, 'id'>) {
+  if (!cuadra(a)) throw new Error('El asiento no cuadra: revisa el esquema contable.')
+  const id = `AS-${String(db.asientos.length + 1).padStart(5, '0')}`
+  db.asientos.push({ ...a, id })
+  return id
+}
+
+/** Un periodo cerrado no admite movimientos. Antes del primer periodo registrado, todo está cerrado. */
+export function periodoCerrado(fecha: ISODate) {
+  const mes = monthKey(fecha)
+  const p = db.periodos.find((x) => x.mes === mes)
+  return p ? p.estado === 'Cerrado' : mes < db.periodos[0].mes
+}
+
+function verificarPeriodo(fecha: ISODate = HOY) {
+  if (periodoCerrado(fecha)) throw new Error(`El periodo ${nombreMesAnio(fecha)} está cerrado. Reábrelo en Contabilidad → Cierre de mes para registrar movimientos.`)
+}
+const nombreMesAnio = (f: ISODate) => `${nombreMes(f)} ${f.slice(0, 4)}`
+
+function saldosCuentas(hasta: ISODate = HOY) {
+  const tot = new Map<string, { debe: number; haber: number }>()
+  db.asientos.filter((a) => a.fecha <= hasta).forEach((a) => a.lineas.forEach((l) => {
+    const v = tot.get(l.cuenta) ?? { debe: 0, haber: 0 }
+    v.debe += l.debe
+    v.haber += l.haber
+    tot.set(l.cuenta, v)
+  }))
+  return db.planCuentas.map((c) => {
+    let debe = 0
+    let haber = 0
+    tot.forEach((v, codigo) => {
+      if (codigo === c.codigo || codigo.startsWith(`${c.codigo}.`)) { debe += v.debe; haber += v.haber }
+    })
+    return { ...c, nivel: nivelDe(c.codigo), debe: round2(debe), haber: round2(haber), saldo: round2(c.naturaleza === 'Deudora' ? debe - haber : haber - debe) }
   })
+}
+const saldoCuenta = (codigo: string) => saldosCuentas().find((c) => c.codigo === codigo)?.saldo ?? 0
+
+export async function obtenerContabilidad() {
+  const saldos = saldosCuentas()
   const carteraContable = saldos.find((s) => s.codigo === '1.4.01')!.saldo
   const carteraOperativa = round2(todasLasOperaciones().reduce((s, o) => s + o.saldoCapital, 0))
   const mk = monthKey(HOY)
@@ -1433,7 +1475,164 @@ export async function obtenerContabilidad() {
     cuadre: { carteraContable, carteraOperativa, diferencia: round2(carteraContable - carteraOperativa) },
     banco: db.banco,
     pagosMes: pagosMes.map((p) => ({ ...p, cliente: db.clientes.find((c) => c.id === p.clienteId)! })),
+    esquemas: db.esquemas,
+    periodos: db.periodos.slice().reverse(),
   })
+}
+
+export async function libroMayor(cuenta: string, desde: ISODate, hasta: ISODate) {
+  const c = db.planCuentas.find((x) => x.codigo === cuenta)!
+  const signo = c.naturaleza === 'Deudora' ? 1 : -1
+  const delta = (l: LineaAsiento) => signo * (l.debe - l.haber)
+  const inicial = round2(db.asientos.filter((a) => a.fecha < desde).flatMap((a) => a.lineas).filter((l) => l.cuenta === cuenta).reduce((s, l) => s + delta(l), 0))
+  let saldo = inicial
+  const movimientos = db.asientos
+    .filter((a) => a.fecha >= desde && a.fecha <= hasta && a.lineas.some((l) => l.cuenta === cuenta))
+    .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.id.localeCompare(b.id))
+    .flatMap((a) => a.lineas.filter((l) => l.cuenta === cuenta).map((l) => {
+      saldo = round2(saldo + delta(l))
+      return { asiento: a.id, fecha: a.fecha, glosa: a.glosa, origen: a.origen, debe: l.debe, haber: l.haber, saldo }
+    }))
+  return esperar({ cuenta: c, inicial, final: saldo, movimientos, debe: round2(movimientos.reduce((s, m) => s + m.debe, 0)), haber: round2(movimientos.reduce((s, m) => s + m.haber, 0)) })
+}
+
+// ── Plan de cuentas y esquemas ─────────────────────────────────────────────
+export async function crearCuenta(padre: string, nombre: string) {
+  const p = db.planCuentas.find((c) => c.codigo === padre)
+  if (!p || p.movimiento || nivelDe(padre) !== 2) throw new Error('Elige un grupo de segundo nivel (por ejemplo, 5.1).')
+  if (nombre.trim().length < 3) throw new Error('Escribe el nombre de la cuenta.')
+  const codigo = siguienteCodigo(padre, db.planCuentas)
+  const cuenta: Cuenta = { codigo, nombre: nombre.trim(), naturaleza: p.naturaleza, tipo: p.tipo, movimiento: true, activa: true }
+  const i = db.planCuentas.findIndex((c) => c.codigo > codigo && !c.codigo.startsWith(`${codigo}.`))
+  db.planCuentas.splice(i < 0 ? db.planCuentas.length : i, 0, cuenta)
+  notificar()
+  return esperar(cuenta)
+}
+
+export function bloqueoDesactivar(codigo: string): string | null {
+  if (db.esquemas.some((e) => e.lineas.some((l) => l.cuenta === codigo))) return 'La usa un esquema contable.'
+  if (Math.abs(saldoCuenta(codigo)) > 0.004) return 'Tiene saldo.'
+  return null
+}
+
+export async function actualizarCuenta(codigo: string, cambios: { nombre?: string; activa?: boolean }) {
+  const c = db.planCuentas.find((x) => x.codigo === codigo)
+  if (!c) throw new Error('Cuenta no encontrada.')
+  if (cambios.activa === false) {
+    const b = bloqueoDesactivar(codigo)
+    if (b) throw new Error(`No se puede desactivar: ${b}`)
+  }
+  if (cambios.nombre !== undefined && cambios.nombre.trim().length < 3) throw new Error('El nombre es muy corto.')
+  Object.assign(c, { ...cambios, nombre: cambios.nombre?.trim() ?? c.nombre })
+  notificar()
+  return esperar(c)
+}
+
+export async function actualizarEsquema(evento: EventoContable, indice: number, cuenta: string) {
+  const c = db.planCuentas.find((x) => x.codigo === cuenta)
+  if (!c || !c.movimiento || !c.activa) throw new Error('Elige una cuenta de movimiento activa.')
+  esquemaDe(evento).lineas[indice].cuenta = cuenta
+  notificar()
+  return esperar(esquemaDe(evento))
+}
+
+// ── Provisiones contables ──────────────────────────────────────────────────
+export function estadoProvision() {
+  const ops = todasLasOperaciones().filter((o) => !o.cancelada)
+  const requerida = round2(ops.reduce((s, o) => s + o.saldoCapital * categoriaDe(o.diasMora).tasa, 0))
+  const constituida = saldoCuenta('1.4.99')
+  const registradaMes = db.asientos.some((a) => a.origen === 'Provisión' && monthKey(a.fecha) === monthKey(HOY))
+  return { requerida, constituida, diferencia: round2(requerida - constituida), registradaMes }
+}
+
+export async function registrarProvision() {
+  verificarPeriodo()
+  const e = estadoProvision()
+  if (Math.abs(e.diferencia) < 0.01) throw new Error('La provisión ya está al día.')
+  const lineas = lineasSegun(esquemaDe('Provisión'), { provision: Math.abs(e.diferencia) })
+  const id = registrarAsiento({
+    fecha: HOY, glosa: e.diferencia > 0 ? `Provisión de cartera de ${nombreMesAnio(HOY)}` : `Liberación de provisión de ${nombreMesAnio(HOY)}`,
+    origen: 'Provisión', referencia: `PROV-${monthKey(HOY)}`, lineas: e.diferencia > 0 ? lineas : invertir(lineas),
+  })
+  notificar()
+  return esperar({ id, monto: e.diferencia })
+}
+
+// ── Castigo ─────────────────────────────────────────────────────────────────
+export const DIAS_MINIMOS_CASTIGO = 180
+
+export function bloqueoCastigo(operacionId: string): string | null {
+  const op = db.operaciones.find((o) => o.id === operacionId)!
+  if (op.castigo) return 'La operación ya está castigada.'
+  const v = vistaOperacion(op)
+  if (v.cancelada) return 'La operación está cancelada.'
+  if (v.diasMora < DIAS_MINIMOS_CASTIGO) return `Solo se castigan operaciones con ${DIAS_MINIMOS_CASTIGO} días de mora o más (tiene ${v.diasMora}).`
+  if (periodoCerrado(HOY)) return 'El periodo contable está cerrado.'
+  return null
+}
+
+export function simularCastigo(operacionId: string) {
+  const v = vistaOperacion(db.operaciones.find((o) => o.id === operacionId)!)
+  const disponible = Math.max(0, saldoCuenta('1.4.99'))
+  const conProvision = round2(Math.min(v.saldoCapital, disponible))
+  return { saldo: v.saldoCapital, conProvision, aGasto: round2(v.saldoCapital - conProvision), provisionDisponible: disponible }
+}
+
+export async function castigar(operacionId: string, motivo: string) {
+  const b = bloqueoCastigo(operacionId)
+  if (b) throw new Error(b)
+  if (motivo.trim().length < 10) throw new Error('Explica el motivo del castigo (mínimo 10 caracteres).')
+  const s = simularCastigo(operacionId)
+  const op = db.operaciones.find((o) => o.id === operacionId)!
+  const asientoId = registrarAsiento({
+    fecha: HOY, glosa: `Castigo de ${op.id}: ${motivo.trim()}`, origen: 'Castigo', referencia: op.id,
+    lineas: lineasSegun(esquemaDe('Castigo'), { saldo: s.saldo, conProvision: s.conProvision, aGasto: s.aGasto }),
+  })
+  op.castigo = { fecha: HOY, saldo: s.saldo, motivo: motivo.trim(), asientoId }
+  notificar()
+  return esperar(op.castigo)
+}
+
+// ── Cierre de mes ───────────────────────────────────────────────────────────
+export function checklistCierre() {
+  const saldos = saldosCuentas()
+  const movs = saldos.filter((c) => c.movimiento)
+  const debe = round2(movs.reduce((s, c) => s + c.debe, 0))
+  const haber = round2(movs.reduce((s, c) => s + c.haber, 0))
+  const carteraContable = saldos.find((x) => x.codigo === '1.4.01')!.saldo
+  const carteraOperativa = round2(todasLasOperaciones().reduce((s, o) => s + o.saldoCapital, 0))
+  const prov = estadoProvision()
+  const mk = monthKey(HOY)
+  const pendientesBanco = db.pagos.filter((p) => monthKey(p.fecha) === mk && !p.conciliado).length
+  const castigables = todasLasOperaciones().filter((o) => !o.cancelada && o.diasMora >= 360).length
+  return [
+    { id: 'partida', texto: 'Partida doble: el debe iguala al haber', ok: Math.abs(debe - haber) < 0.01, bloquea: true, detalle: `${dinero(debe)} / ${dinero(haber)}` },
+    { id: 'cuadre', texto: 'La cuenta de cartera cuadra con los saldos de las operaciones', ok: Math.abs(carteraContable - carteraOperativa) < 0.01, bloquea: true, detalle: `diferencia ${dinero(round2(carteraContable - carteraOperativa))}` },
+    { id: 'provision', texto: 'Provisión del mes registrada', ok: Math.abs(prov.diferencia) < 1, bloquea: true, detalle: Math.abs(prov.diferencia) < 1 ? 'al día' : `faltan ${dinero(prov.diferencia)}` },
+    { id: 'caja', texto: 'Caja del día cerrada y cuadrada', ok: db.caja.estado === 'Cuadrada', bloquea: true, detalle: db.caja.estado === 'Cuadrada' ? `cerrada a las ${db.caja.cierre?.hora}` : 'la caja sigue abierta' },
+    { id: 'banco', texto: 'Pagos del mes conciliados con el banco', ok: pendientesBanco === 0, bloquea: false, detalle: pendientesBanco ? `${pendientesBanco} en tránsito; se arrastran al mes siguiente` : 'todo conciliado' },
+    { id: 'castigo', texto: 'Cartera con más de 360 días evaluada para castigo', ok: castigables === 0, bloquea: false, detalle: castigables ? (castigables === 1 ? '1 operación por evaluar' : `${castigables} operaciones por evaluar`) : 'sin pendientes' },
+  ]
+}
+
+export async function cerrarPeriodo(nota: string) {
+  const mes = monthKey(HOY)
+  const p = db.periodos.find((x) => x.mes === mes)!
+  if (p.estado === 'Cerrado') throw new Error('El periodo ya está cerrado.')
+  const pendiente = checklistCierre().find((c) => c.bloquea && !c.ok)
+  if (pendiente) throw new Error(`Falta: ${pendiente.texto.toLowerCase()}.`)
+  Object.assign(p, { estado: 'Cerrado', cerradoPor: USUARIA_DEMO.nombre, fecha: `${HOY} ${new Date().toTimeString().slice(0, 5)}`, nota: nota.trim() || undefined })
+  notificar()
+  return esperar(p)
+}
+
+export async function reabrirPeriodo(motivo: string) {
+  if (motivo.trim().length < 10) throw new Error('Explica por qué se reabre (mínimo 10 caracteres).')
+  const p = db.periodos.find((x) => x.mes === monthKey(HOY))!
+  if (p.estado === 'Abierto') throw new Error('El periodo ya está abierto.')
+  Object.assign(p, { estado: 'Abierto', nota: `Reabierto: ${motivo.trim()}` })
+  notificar()
+  return esperar(p)
 }
 
 // ── Reportes ────────────────────────────────────────────────────────────────

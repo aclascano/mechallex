@@ -15,10 +15,10 @@ import { diffDays, fmtFecha, fmtFechaLarga } from '../domain/fechas'
 import type { TipoGarantia } from '../domain/tipos'
 import { cx, dinero, plural, porcentaje } from '../lib/formato'
 import { useServicio } from '../lib/useServicio'
-import { bloqueoReverso, fechaCorte, obtenerOperacion } from '../services/api'
+import { bloqueoCastigo, bloqueoReverso, castigar, DIAS_MINIMOS_CASTIGO, fechaCorte, obtenerOperacion, simularCastigo } from '../services/api'
 
 type Tab = 'resumen' | 'tabla' | 'devengo' | 'garantias' | 'pagos' | 'cuenta' | 'cobranza' | 'documentos'
-type Accion = 'pago' | 'abono' | 'precancelar' | null
+type Accion = 'pago' | 'abono' | 'precancelar' | 'castigar' | null
 type Detalle = NonNullable<Awaited<ReturnType<typeof obtenerOperacion>>>
 
 const HOY = fechaCorte()
@@ -35,7 +35,7 @@ export default function PaginaOperacion() {
 
   if (!d) return cargando ? <EsqueletoPagina /> : <Vacio titulo="Operación no encontrada">Revisa el número o vuelve a la lista de operaciones.</Vacio>
   const cambiarTab = (t: Tab) => setParams(t === 'resumen' ? {} : { tab: t }, { replace: true })
-  const estado: [string, Tono] = d.cancelada ? ['Cancelada', 'ok'] : d.juicio ? ['En juicio', 'bad'] : d.diasMora > 0 ? ['En mora', 'warn'] : ['Vigente', 'rosa']
+  const estado: [string, Tono] = d.castigo ? ['Castigada', 'bad'] : d.cancelada ? ['Cancelada', 'ok'] : d.juicio ? ['En juicio', 'bad'] : d.diasMora > 0 ? ['En mora', 'warn'] : ['Vigente', 'rosa']
 
   return (
     <div>
@@ -57,8 +57,9 @@ export default function PaginaOperacion() {
         acciones={
           <div className="flex flex-wrap gap-2 print:hidden">
             {d.juicio && <Link to={`/juicios?causa=${d.juicio.id}`} className="inline-flex h-9 items-center gap-2 rounded-[9px] border border-line-strong bg-panel px-3.5 text-[0.85rem] font-medium hover:bg-panel-2"><Gavel size={15} /> Causa</Link>}
-            {!d.cancelada && (
+            {!d.cancelada && !d.castigo && (
               <>
+                {d.diasMora >= DIAS_MINIMOS_CASTIGO && <Boton variante="fantasma" onClick={() => setAccion('castigar')}>Castigar</Boton>}
                 <Boton variante="fantasma" onClick={() => setAccion('precancelar')}>Precancelar</Boton>
                 <Boton onClick={() => setAccion('abono')}>Abono a capital</Boton>
                 <Boton variante="primario" onClick={() => setAccion('pago')} icono={<Wallet size={15} />}>Registrar pago</Boton>
@@ -69,6 +70,11 @@ export default function PaginaOperacion() {
       />
 
       {aviso && <AvisoAccion mensaje={aviso} />}
+      {d.castigo && (
+        <p className="mb-4 rounded-[10px] border border-bad/40 bg-bad-soft/40 px-4 py-3 text-[0.85rem] text-ink-2">
+          <span className="font-semibold text-bad">Castigada el {fmtFecha(d.castigo.fecha)}</span> por {dinero(d.castigo.saldo)} ({d.castigo.motivo}). Salió del balance y queda en cuentas de orden (asiento {d.castigo.asientoId}); su gestión de recuperación sigue abierta.
+        </p>
+      )}
 
       <div className="print:hidden">
         <Pestanas<Tab>
@@ -106,11 +112,40 @@ export default function PaginaOperacion() {
           <AbonoCapital operacionId={d.id} onListo={listo} />
         </Dialogo>
       )}
+      {accion === 'castigar' && (
+        <Dialogo titulo="Castigar la operación" descripcion="El saldo sale de la cartera y pasa a cuentas de orden. Se sigue gestionando su recuperación." onCerrar={cerrar} ancho="max-w-md">
+          <Castigo opId={d.id} onListo={listo} />
+        </Dialogo>
+      )}
       {accion === 'precancelar' && (
         <Dialogo titulo="Precancelar la operación" descripcion={`Liquidación al ${fmtFechaLarga(HOY)}`} onCerrar={cerrar} ancho="max-w-md">
           <Precancelacion operacionId={d.id} saldoCapital={d.saldoCapital} saldos={d.saldos} onListo={listo} />
         </Dialogo>
       )}
+    </div>
+  )
+}
+
+function Castigo({ opId, onListo }: { opId: string; onListo: (m: string) => void }) {
+  const bloqueo = bloqueoCastigo(opId)
+  const s = simularCastigo(opId)
+  const [motivo, setMotivo] = useState('')
+  const [error, setError] = useState('')
+  if (bloqueo) return <p className="text-[0.875rem] text-ink-2">{bloqueo}</p>
+  return (
+    <div className="space-y-4">
+      <dl className="tabular space-y-1.5 text-[0.875rem]">
+        <div className="flex justify-between"><dt className="text-ink-2">Saldo a castigar</dt><dd className="font-semibold">{dinero(s.saldo)}</dd></div>
+        <div className="flex justify-between"><dt className="text-ink-2">Cubierto con provisión</dt><dd>{dinero(s.conProvision)}</dd></div>
+        <div className="flex justify-between"><dt className="text-ink-2">Sin provisión (va al gasto)</dt><dd className={s.aGasto > 0 ? 'text-bad' : ''}>{dinero(s.aGasto)}</dd></div>
+      </dl>
+      <label className="flex flex-col gap-1.5">
+        <span className="text-[0.8rem] font-medium text-ink-2">Motivo</span>
+        <textarea value={motivo} onChange={(e) => { setMotivo(e.target.value); setError('') }} rows={2} placeholder="Ej.: más de 180 días de mora, gestiones agotadas y garantía insuficiente"
+          className="w-full resize-none rounded-[9px] border border-line-strong bg-panel px-3 py-2 text-[0.875rem] focus-visible:border-rose focus-visible:ring-2 focus-visible:ring-rose/30 focus-visible:outline-none" />
+        {error && <span role="alert" className="text-[0.75rem] font-medium text-bad">{error}</span>}
+      </label>
+      <div className="flex justify-end"><Boton variante="primario" onClick={async () => { try { await castigar(opId, motivo); onListo('Operación castigada: salió de la cartera y quedó en cuentas de orden.') } catch (e) { setError((e as Error).message) } }}>Castigar {dinero(s.saldo)}</Boton></div>
     </div>
   )
 }

@@ -8,13 +8,13 @@ Marca: ✅ hecho · 🟡 propuesta (confirmar) · ❓ duda abierta
 
 - ✅ Quitar "entidad ficticia" del panel y del riel.
 - ✅ La barra superior muestra fecha y hora (ya no "Corte al").
-- 🟡 Nueva navegación:
+- ✅ Nueva navegación:
   - **General:** Panel
   - **Cartera:** Clientes · Operaciones · Nueva obligación
   - **Recaudo:** Pagos · Caja
   - **Recuperación:** Cobranza · Juicios
   - **Finanzas:** Contabilidad · Reportes
-- 🟡 Los formularios largos se llenan por pasos, con validación en línea y un borrador que se mantiene mientras navegas.
+- ✅ Los formularios largos se llenan por pasos, con validación en línea y un borrador que se mantiene mientras navegas.
 
 ## 1. Clientes: módulo completo ✅
 
@@ -47,13 +47,13 @@ Marca: ✅ hecho · 🟡 propuesta (confirmar) · ❓ duda abierta
     - Movimientos (desembolso, cuotas, pagos, cargos) con saldo corrido.
     - Rango de fechas configurable.
     - Vista imprimible / PDF del navegador.
-  - **Cobranza:** etapa, promesas y causa judicial. 🟡 La bitácora de gestiones llega con Cobranza.
+  - **Cobranza:** etapa, promesas, causa judicial, convenios y bitácora de gestiones. ✅
   - **Documentos:** pagaré, tabla firmada y contrato. En la demo son solo nombres de archivo.
 - **Acciones:**
   - Registrar pago y precancelación (liquidación a la fecha).
   - Abono a capital con recálculo.
-  - Reestructurar o refinanciar (crea una operación nueva y cancela la anterior). 🟡 Pendiente: depende de Nueva obligación.
-  - Castigo (pasa a cuentas de orden). 🟡 Pendiente: va con Contabilidad.
+  - Reestructurar o refinanciar (crea una operación nueva y cancela la anterior). 🟡 Pendiente.
+  - Castigo (pasa a cuentas de orden). ✅
 - ✅ Agregado: **tabla devengada** (interés reconocido por días, cobrado, por cobrar y en cuentas de orden).
 
 ## 3. Nueva obligación (reemplaza "Amortización") ✅
@@ -71,7 +71,7 @@ La pantalla actual era solo un simulador. Pasa a ser la **creación de la obliga
    - Medio de desembolso y cuenta.
    - Genera la operación, su tabla y el asiento contable. Todo aparece al instante en Cartera, Panel y Contabilidad.
 
-- 🟡 El **simulador** sigue existiendo como acción rápida ("Simular"), sin crear nada.
+- ✅ El **simulador** sigue existiendo como acción rápida ("Simular"), sin crear nada.
 
 ## 4. Pagos y Caja ✅
 
@@ -100,9 +100,9 @@ La pantalla actual era solo un simulador. Pasa a ser la **creación de la obliga
   - En la demo, un archivo de ejemplo.
   - Se muestra qué se aplicó, qué quedó pendiente y qué no se encontró.
 
-## 5. Contabilidad: propuesta
+## 5. Contabilidad ✅
 
-Hoy tiene diario, balance y conciliación. Propongo ordenarla en cinco partes:
+Construida en ocho pestañas: diario, mayor, balance y cuadre, plan de cuentas, esquemas contables, provisiones, conciliación y cierre de mes. Incluye el castigo de operaciones.
 
 - **Plan de cuentas:** árbol editable (activo, pasivo, patrimonio, ingresos, gastos y cuentas de orden).
 - **Configuración contable:** qué cuentas mueve cada evento. Es la pieza clave, porque así el usuario ve que todo es automático.
@@ -190,4 +190,4 @@ Lo que ya existe (campañas, reglas, promesas, n8n) se mantiene y se agrega:
 4. Pagos y Caja. ✅
 5. Riesgo: datos socioeconómicos, scoring y provisiones. ✅
 6. Cobranza ampliada. ✅
-7. Contabilidad (con el asiento mensual de provisiones que sale de 7.3).
+7. Contabilidad (con el asiento mensual de provisiones que sale de 7.3). ✅

@@ -1,4 +1,4 @@
-import type { Campania, Cuenta, FlujoN8n, Regla } from '../domain/tipos'
+import type { Campania, Cuenta, EsquemaContable, FlujoN8n, Regla } from '../domain/tipos'
 
 // Campañas: el "recuperado" se recalcula en los servicios como una parte de los pagos reales del mes.
 export const CAMPANIAS: (Omit<Campania, 'recuperado'> & { participacion: number })[] = [
@@ -83,13 +83,60 @@ export const FLUJOS_N8N: FlujoN8n[] = [
   },
 ]
 
+const g = (codigo: string, nombre: string, naturaleza: Cuenta['naturaleza'], tipo: Cuenta['tipo']): Cuenta => ({ codigo, nombre, naturaleza, tipo, movimiento: false, activa: true })
+const m = (codigo: string, nombre: string, naturaleza: Cuenta['naturaleza'], tipo: Cuenta['tipo']): Cuenta => ({ codigo, nombre, naturaleza, tipo, movimiento: true, activa: true })
+
+/** Plan de cuentas de la demo (estructura general del sector, simplificada). */
 export const PLAN_CUENTAS: Cuenta[] = [
-  { codigo: '1.1.01', nombre: 'Bancos', naturaleza: 'Deudora', tipo: 'Activo' },
-  { codigo: '1.4.01', nombre: 'Cartera de créditos', naturaleza: 'Deudora', tipo: 'Activo' },
-  { codigo: '2.1.01', nombre: 'Primas de seguro por pagar', naturaleza: 'Acreedora', tipo: 'Pasivo' },
-  { codigo: '3.1.01', nombre: 'Capital social', naturaleza: 'Acreedora', tipo: 'Patrimonio' },
-  { codigo: '4.1.01', nombre: 'Intereses ganados', naturaleza: 'Acreedora', tipo: 'Ingreso' },
-  { codigo: '4.1.02', nombre: 'Intereses de mora', naturaleza: 'Acreedora', tipo: 'Ingreso' },
-  { codigo: '4.1.03', nombre: 'Comisiones por apertura', naturaleza: 'Acreedora', tipo: 'Ingreso' },
-  { codigo: '5.1.01', nombre: 'Gastos judiciales', naturaleza: 'Deudora', tipo: 'Gasto' },
+  g('1', 'Activo', 'Deudora', 'Activo'),
+  g('1.1', 'Fondos disponibles', 'Deudora', 'Activo'),
+  m('1.1.01', 'Bancos', 'Deudora', 'Activo'),
+  g('1.4', 'Cartera de créditos', 'Deudora', 'Activo'),
+  m('1.4.01', 'Cartera de créditos', 'Deudora', 'Activo'),
+  m('1.4.99', '(Provisión para créditos incobrables)', 'Acreedora', 'Activo'),
+  g('2', 'Pasivo', 'Acreedora', 'Pasivo'),
+  g('2.1', 'Cuentas por pagar', 'Acreedora', 'Pasivo'),
+  m('2.1.01', 'Primas de seguro por pagar', 'Acreedora', 'Pasivo'),
+  g('3', 'Patrimonio', 'Acreedora', 'Patrimonio'),
+  g('3.1', 'Capital', 'Acreedora', 'Patrimonio'),
+  m('3.1.01', 'Capital social', 'Acreedora', 'Patrimonio'),
+  g('4', 'Ingresos', 'Acreedora', 'Ingreso'),
+  g('4.1', 'Intereses y comisiones ganados', 'Acreedora', 'Ingreso'),
+  m('4.1.01', 'Intereses ganados', 'Acreedora', 'Ingreso'),
+  m('4.1.02', 'Intereses de mora', 'Acreedora', 'Ingreso'),
+  m('4.1.03', 'Comisiones por apertura', 'Acreedora', 'Ingreso'),
+  g('4.2', 'Otros ingresos', 'Acreedora', 'Ingreso'),
+  m('4.2.01', 'Recuperación de cartera castigada', 'Acreedora', 'Ingreso'),
+  g('5', 'Gastos', 'Deudora', 'Gasto'),
+  g('5.1', 'Gastos de operación', 'Deudora', 'Gasto'),
+  m('5.1.01', 'Gastos judiciales', 'Deudora', 'Gasto'),
+  g('5.4', 'Provisiones', 'Deudora', 'Gasto'),
+  m('5.4.01', 'Provisión para cartera de créditos', 'Deudora', 'Gasto'),
+  g('7', 'Cuentas de orden', 'Deudora', 'Orden'),
+  g('7.1', 'Deudoras', 'Deudora', 'Orden'),
+  m('7.1.01', 'Cartera castigada', 'Deudora', 'Orden'),
+  g('7.2', 'Acreedoras por contra', 'Acreedora', 'Orden'),
+  m('7.2.01', 'Cartera castigada por contra', 'Acreedora', 'Orden'),
+]
+
+/** Qué cuentas mueve cada evento. Editable en Contabilidad → Esquemas contables. */
+export const ESQUEMAS: EsquemaContable[] = [
+  { evento: 'Desembolso', descripcion: 'Al desembolsar una obligación.', lineas: [
+    { concepto: 'monto', lado: 'Debe', cuenta: '1.4.01' }, { concepto: 'neto', lado: 'Haber', cuenta: '1.1.01' },
+    { concepto: 'comision', lado: 'Haber', cuenta: '4.1.03' }, { concepto: 'seguro', lado: 'Haber', cuenta: '2.1.01' },
+  ] },
+  { evento: 'Pago', descripcion: 'Al registrar un pago, abono o precancelación.', lineas: [
+    { concepto: 'total', lado: 'Debe', cuenta: '1.1.01' }, { concepto: 'capital', lado: 'Haber', cuenta: '1.4.01' },
+    { concepto: 'interes', lado: 'Haber', cuenta: '4.1.01' }, { concepto: 'mora', lado: 'Haber', cuenta: '4.1.02' },
+  ] },
+  { evento: 'Costas judiciales', descripcion: 'Al pagar una costa de un juicio.', lineas: [
+    { concepto: 'costa', lado: 'Debe', cuenta: '5.1.01' }, { concepto: 'costa', lado: 'Haber', cuenta: '1.1.01' },
+  ] },
+  { evento: 'Provisión', descripcion: 'Ajuste mensual de la provisión; si la requerida baja, se registra al revés (liberación).', lineas: [
+    { concepto: 'provision', lado: 'Debe', cuenta: '5.4.01' }, { concepto: 'provision', lado: 'Haber', cuenta: '1.4.99' },
+  ] },
+  { evento: 'Castigo', descripcion: 'Al castigar una operación: sale del balance y queda en cuentas de orden.', lineas: [
+    { concepto: 'conProvision', lado: 'Debe', cuenta: '1.4.99' }, { concepto: 'aGasto', lado: 'Debe', cuenta: '5.4.01' },
+    { concepto: 'saldo', lado: 'Haber', cuenta: '1.4.01' }, { concepto: 'saldo', lado: 'Debe', cuenta: '7.1.01' }, { concepto: 'saldo', lado: 'Haber', cuenta: '7.2.01' },
+  ] },
 ]

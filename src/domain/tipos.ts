@@ -119,6 +119,8 @@ export interface Operacion {
   recalculos?: Recalculo[]
   primerVencimiento?: ISODate
   graciaMeses?: number
+  /** Castigo: el saldo sale del balance y pasa a cuentas de orden. */
+  castigo?: { fecha: ISODate; saldo: number; motivo: string; asientoId: string }
   /** Datos de originación cuando la operación se creó en la demo. */
   originacion?: { comision: number; seguro: number; neto: number; medio: string; cuentaDestino: string; aprobadaPor: string; observacion: string; score?: number; pd?: number }
 }
@@ -317,7 +319,26 @@ export interface Cuenta {
   codigo: string
   nombre: string
   naturaleza: 'Deudora' | 'Acreedora'
-  tipo: 'Activo' | 'Pasivo' | 'Ingreso' | 'Gasto' | 'Patrimonio'
+  tipo: 'Activo' | 'Pasivo' | 'Ingreso' | 'Gasto' | 'Patrimonio' | 'Orden'
+  /** false = cuenta de grupo (solo suma a sus hijas). */
+  movimiento: boolean
+  activa: boolean
+}
+
+export type EventoContable = 'Desembolso' | 'Pago' | 'Costas judiciales' | 'Provisión' | 'Castigo'
+
+export interface EsquemaContable {
+  evento: EventoContable
+  descripcion: string
+  lineas: { concepto: string; lado: 'Debe' | 'Haber'; cuenta: string }[]
+}
+
+export interface Periodo {
+  mes: string // AAAA-MM
+  estado: 'Abierto' | 'Cerrado'
+  cerradoPor?: string
+  fecha?: string
+  nota?: string
 }
 
 export interface LineaAsiento {
@@ -330,7 +351,7 @@ export interface Asiento {
   id: string
   fecha: ISODate
   glosa: string
-  origen: 'Desembolso' | 'Pago' | 'Costas judiciales' | 'Ajuste' | 'Reverso'
+  origen: 'Desembolso' | 'Pago' | 'Costas judiciales' | 'Ajuste' | 'Reverso' | 'Provisión' | 'Castigo'
   referencia: string
   lineas: LineaAsiento[]
 }

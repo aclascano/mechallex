@@ -21,7 +21,7 @@ Stack: Vite + React + TypeScript + Tailwind CSS v4 + Recharts, React Router (Has
 |---|---|---|
 | `#/` | Panel | Saldo, morosidad, recuperado vs. exigible, cartera por antigüedad (roseta guilloché), promesas, juicios, campañas y dónde actuar hoy. |
 | `#/clientes` | Clientes | Listado con filtros; alta y edición en seis pasos (identificación con validación de cédula/RUC, contacto, actividad económica y capacidad de pago, referencias y cónyuge, canales autorizados y gestor); ficha con pestañas, historial de cambios, **situación socioeconómica** (ingresos, egresos y patrimonio desglosados, empleo o negocio, hogar), **score de riesgo** y **comportamiento de pago** (puntualidad, atrasos, calificación interna). El listado trae indicadores de la base: activos, nuevos, en mora, antigüedad, altas por año, edad, ciudades, gestores y segmentos. Los clientes no se borran: se inactivan, y solo si no tienen operaciones vigentes ni juicios. |
-| `#/operaciones` | Operaciones | Cartera con filtros (antigüedad, producto, origen, etapa, gestor, estado) y orden. El detalle tiene pestañas: resumen con saldos a la fecha (para ponerse al día y para cancelar hoy), tabla de amortización con fecha y atraso de cada pago, **tabla devengada**, garantías y cobertura, pagos, **estado de cuenta** imprimible, cobranza y documentos. Acciones: registrar pago, abono a capital con recálculo y precancelación. |
+| `#/operaciones` | Operaciones | Cartera con filtros (antigüedad, producto, origen, etapa, gestor, estado) y orden. El detalle tiene pestañas: resumen con saldos a la fecha (para ponerse al día y para cancelar hoy), tabla de amortización con fecha y atraso de cada pago, **tabla devengada**, garantías y cobertura, pagos, **estado de cuenta** imprimible, cobranza y documentos. Acciones: registrar pago, abono a capital con recálculo, precancelación y **castigo** (desde 180 días de mora: sale de la cartera y pasa a cuentas de orden). |
 | `#/obligaciones/nueva` | Nueva obligación | Originación en seis pasos: deudor (o alta de cliente sin salir del flujo), producto y condiciones (tasa con techo, día de pago, gracia, seguro), garantes y garantías con cobertura mínima, tabla con comparación francés/alemán, aprobación con capacidad de pago y alertas, y desembolso con su asiento contable. |
 | `#/amortizacion` | Simulador | Simulación rápida francés / alemán sin crear nada. |
 | `#/pagos` | Pagos y abonos | **Registrar:** buscar la operación, elegir el valor (ponerse al día, por cuotas o valor libre) y revisar la **presimulación** cuota por cuota antes de confirmar; emite comprobante imprimible. **Consultar:** búsqueda por cliente, operación, comprobante o fecha (no lista toda la cartera), con totales y comprobante de cada pago. **Reverso** con motivo (solo pagos del día y el último de la operación) y asiento inverso. **Caja del día:** recaudado por medio, efectivo esperado, arqueo por denominación y cierre. **Recaudo masivo:** carga de archivo CSV de bancos o corresponsales, validación línea por línea y aplicación del lote. |
@@ -29,7 +29,7 @@ Stack: Vite + React + TypeScript + Tailwind CSS v4 + Recharts, React Router (Has
 | `#/cobranza` | Cobranza automatizada | **Estrategia por etapa** (preventiva → judicial) con pasos editables, **plantillas** con variables y vista previa con datos reales, campañas, reglas, **horarios y feriados** de contacto, e integración con **n8n** con bitácora de ejecuciones y webhooks de entrada (solo interfaz). |
 | `#/juicios` | Juicios | Tablero kanban por etapa procesal, lista, expediente con actuaciones y costas. |
 | `#/riesgo` | Riesgo y provisiones | Calificación A1–E con su provisión, provisión requerida frente a la constituida, pérdida esperada (PD × pérdida si no paga × saldo), matriz de rodamiento estimada con 12 meses de la cartera y proyección de provisiones a 12 meses con escenarios de estrés. |
-| `#/contabilidad` | Contabilidad | Libro diario, balance de comprobación, cuadre cartera-contabilidad y conciliación bancaria. |
+| `#/contabilidad` | Contabilidad | Libro diario, **libro mayor** por cuenta, balance de comprobación jerárquico con cuadre cartera-contabilidad y resultado, **plan de cuentas** editable (grupos y cuentas de movimiento, incluida la provisión y las cuentas de orden), **esquemas contables** (qué cuentas mueve cada evento, editables), **provisiones** con el asiento mensual, conciliación bancaria y **cierre de mes** con checklist que bloquea el periodo. |
 | `#/reportes` | Reportes | Evolución de saldo y morosidad, composición de lo recuperado, cartera por producto, ciudad y gestor, con su tabla de valores. |
 
 ## Coherencia de los datos
@@ -42,9 +42,11 @@ Los datos no son números sueltos: se **generan** a partir de reglas, con una se
 - La tabla devengada reconoce el interés de cada cuota día a día. Con más de 60 días de mora (parámetro de la demo, `DIAS_SUSPENSION_DEVENGO`), el interés pasa a cuentas de orden.
 - Un abono a capital recalcula las cuotas futuras (bajar cuota o acortar plazo). La precancelación cobra capital, interés devengado hasta hoy y recargo, y libera las garantías.
 - Los juicios nacen de las operaciones con más de 120 días de mora; sus costas generan asientos de gasto.
-- Cada desembolso, pago y costa genera su asiento contable. La cuenta *1.4.01 Cartera de créditos* cuadra al centavo con la suma de saldos de las operaciones (lo verás en **Contabilidad → Balance y cuadre**).
+- Cada desembolso, pago, costa, provisión y castigo genera su asiento contable según los **esquemas contables** (`db.esquemas`, editables en Contabilidad). La cuenta *1.4.01 Cartera de créditos* cuadra al centavo con la suma de saldos de las operaciones (lo verás en **Contabilidad → Balance y cuadre**).
 - Al desembolsar una nueva obligación se crean la operación, su tabla, sus garantías y el asiento (cartera al debe; bancos, comisión y seguro al haber). Aparece de inmediato en Operaciones, Panel y Contabilidad.
 - Un reverso saca el pago de la operación (vuelve el saldo, y la tabla si fue abono a capital) y registra el asiento inverso; la diferencia cartera-contabilidad sigue en cero.
+- La provisión constituida arranca con la requerida al cierre de octubre (asiento de apertura). El botón de Contabilidad → Provisiones registra el ajuste del mes; Riesgo y provisiones lee el saldo contable de la cuenta 1.4.99.
+- Los meses anteriores están cerrados y noviembre abierto. Con el periodo cerrado no se registran pagos, desembolsos, reversos, provisiones ni castigos hasta reabrirlo.
 - La caja del día empieza abierta con $300 de fondo. Cerrada la caja, no se recibe efectivo en ventanilla.
 - **Score de riesgo (300–850):** modelo logístico con pesos expertos de demostración (`src/domain/riesgo.ts`). Usa datos socioeconómicos (carga de cuotas, capacidad, antigüedad, patrimonio, deudas externas, vivienda, garantía) y, si hay historial, el comportamiento de pago. Explica cada puntaje por factor. No es un modelo entrenado ni validado.
 - **Provisiones** (`src/domain/provisiones.ts`): porcentajes por categoría, pérdida por tipo de garantía y castigo mensual son parámetros de la demo; la matriz de rodamiento sí se estima con la historia de la cartera.
@@ -58,7 +60,8 @@ La fecha de corte de la demo está fija en **13 de noviembre de 2026** (`HOY` en
 
 ```
 src/
-  domain/      Reglas de negocio puras: fechas, amortización, estado de cartera, clientes, identificación, tipos
+  domain/      Reglas de negocio puras: fechas, amortización, cartera, operación (saldos, devengo), clientes,
+               identificación, obligación, riesgo (score), provisiones, cobranza, contabilidad, tipos
   mocks/       Datos ficticios: catálogos, generador con semilla, base en memoria (db.ts)
   services/    api.ts — la única puerta de entrada de las pantallas a los datos
   lib/         Formatos (USD es-EC), hook useServicio
@@ -76,7 +79,7 @@ Las pantallas **nunca** importan de `src/mocks`: solo llaman funciones asíncron
 - **Otro conjunto aleatorio:** cambia la semilla en `crearRng(20261113)`.
 - **Garantes y garantías:** `src/mocks/garantias.ts`; la cobertura mínima por producto está en `COBERTURA_MINIMA` (`src/domain/operacion.ts`).
 - **Condiciones de producto para nuevas obligaciones** (comisión, seguro, gracia máxima): `CONDICIONES_PRODUCTO` en `src/mocks/catalogos.ts`; rangos de tasa, plazo y monto en `PRODUCTOS`.
-- **Campañas, reglas, flujos n8n y plan de cuentas:** `src/mocks/cobranza.ts`. Gestiones, convenios, estrategia, plantillas, horarios, feriados y webhooks: `src/mocks/gestiones.ts`.
+- **Campañas, reglas, flujos n8n, plan de cuentas y esquemas contables:** `src/mocks/cobranza.ts`. Gestiones, convenios, estrategia, plantillas, horarios, feriados y webhooks: `src/mocks/gestiones.ts`.
 - **Fecha de corte:** `HOY` en `src/mocks/catalogos.ts`.
 
 ## Cómo conectarlo a una API real
