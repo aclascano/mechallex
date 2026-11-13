@@ -6,6 +6,7 @@ import type {
 } from '../domain/tipos'
 import { ABOGADOS, APELLIDOS, CIUDADES, crearRng, GESTORES, HOY, MEDIOS, NEGOCIOS, NOMBRES, PRODUCTOS } from './catalogos'
 import { enriquecerCliente, generarHistorial } from './fichas'
+import { generarGarantias } from './garantias'
 
 const rng = crearRng(20261113)
 
@@ -331,7 +332,9 @@ export function generarBaseDemo() {
   const banco = generarBanco(operaciones, pagos, juicios)
   const asientos = generarAsientos(operaciones, pagos, juicios)
   const historial = generarHistorial(clientes)
-  return { clientes, operaciones, pagos, juicios, promesas, asientos, banco, historial }
+  const canceladas = new Set(operaciones.filter((o) => estadoOperacion(o, pagos.filter((p) => p.operacionId === o.id), HOY).cancelada).map((o) => o.id))
+  const garantias = generarGarantias(operaciones, clientes, canceladas)
+  return { clientes, operaciones, pagos, juicios, promesas, asientos, banco, historial, garantias }
 }
 
 export type BaseDemo = ReturnType<typeof generarBaseDemo>

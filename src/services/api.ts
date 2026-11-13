@@ -2,12 +2,14 @@
  * Capa de servicios. Las pantallas solo hablan con estas funciones.
  * Hoy leen de `src/mocks/db.ts`; mañana pueden llamar a una API con fetch sin tocar las pantallas.
  */
-import { round2 } from '../domain/amortizacion'
+import { recalcular, round2, type ModoRecalculo } from '../domain/amortizacion'
 import { distribuirPago, estadoOperacion, TASA_MORA_DIARIA, TRAMOS } from '../domain/cartera'
 import { addDays, addMonths, endOfMonth, monthKey, startOfMonth, type ISODate } from '../domain/fechas'
 import { diferencias, normalizar } from '../domain/clientes'
-import type { CambioCliente, Cliente, DatosCliente, EstadoOperacion, MedioPago, Operacion, Pago, Promesa, Tramo } from '../domain/tipos'
-import { CIUDADES, GESTORES, HOY, USUARIA_DEMO } from '../mocks/catalogos'
+import { COBERTURA_MINIMA, saldosOperacion, tablaDevengo } from '../domain/operacion'
+import type { CambioCliente, Cliente, DatosCliente, EstadoOperacion, GarantiasOperacion, MedioPago, Operacion, Pago, Promesa, Tramo } from '../domain/tipos'
+import { dinero } from '../lib/formato'
+import { CIUDADES, GESTORES, HOY, MEDIOS, USUARIA_DEMO } from '../mocks/catalogos'
 import { ACTIVIDADES, PROVINCIA_DE, RELACIONES } from '../mocks/fichas'
 import { db, notificar } from '../mocks/db'
 import { asientoDePago } from '../mocks/generar'
@@ -148,7 +150,7 @@ export async function obtenerCliente(id: string) {
   const promesas = db.promesas.filter((p) => p.clienteId === id).map((p) => ({ ...p, estado: estadoPromesa(p) }))
   const juicios = db.juicios.filter((j) => j.clienteId === id)
   const historial = db.historial.filter((h) => h.clienteId === id).sort((a, b) => b.fecha.localeCompare(a.fecha) || Number(b.id.slice(3)) - Number(a.id.slice(3)))
-  return esperar({ cliente, operaciones, pagos, promesas, juicios, historial })
+  return esperar({ cliente, operaciones, pagos, promesas, juicios, historial, garantiasPrestadas: garantiasPrestadas(id) })
 }
 
 /** Listas para formularios y filtros. */
@@ -230,10 +232,209 @@ export async function listarOperaciones() {
   return esperar(todasLasOperaciones())
 }
 
+export interface MovimientoCuenta {
+  fecha: ISODate
+  tipo: 'desembolso' | 'vencimiento' | 'pago'
+  concepto: string
+  detalle: string
+  capital: number
+  interes: number
+  mora: number
+  total: number
+  saldoCapital: number
+  pendiente?: boolean
+}
+
+function estadoDeCuenta(op: Operacion, est: EstadoOperacion): MovimientoCuenta[] {
+  const movs: Omit<MovimientoCuenta, 'saldoCapital'>[] = [
+    { fecha: op.fechaDesembolso, tipo: 'desembolso', concepto: 'Desembolso', detalle: `${op.producto} a ${op.plazoMeses} meses`, capital: op.monto, interes: 0, mora: 0, total: op.monto },
+  ]
+  op.tabla.forEach((c, i) => {
+    if (c.fecha > HOY) return
+    const pagada = (est.aplicadoPorCuota[i] ?? 0) >= c.cuota - 0.005
+    movs.push({
+      fecha: c.fecha, tipo: 'vencimiento', concepto: `Vence cuota ${c.n}`, detalle: pagada ? 'Cubierta' : est.cancelada ? 'Precancelada' : 'Pendiente',
+      capital: c.capital, interes: c.interes, mora: 0, total: c.cuota, pendiente: !pagada && !est.cancelada,
+    })
+  })
+  pagosDe(op.id).forEach((p) => movs.push({
+    fecha: p.fecha, tipo: 'pago', concepto: p.tipo === 'Cuota' ? 'Pago de cuota' : p.tipo, detalle: `${p.medio} · ${p.referencia}`,
+    capital: -p.capital, interes: -p.interes, mora: -p.mora, total: -p.monto,
+  }))
+  const orden = { desembolso: 0, vencimiento: 1, pago: 2 }
+  let saldo = 0
+  return movs
+    .sort((a, b) => a.fecha.localeCompare(b.fecha) || orden[a.tipo] - orden[b.tipo])
+    .map((m) => {
+      if (m.tipo !== 'vencimiento') saldo = round2(saldo + m.capital)
+      return { ...m, saldoCapital: saldo }
+    })
+}
+
+const NOMBRE_DOC: Record<string, string> = {
+  Hipoteca: 'Escritura de hipoteca inscrita',
+  'Prenda comercial': 'Contrato de prenda comercial',
+  'Prenda vehicular': 'Contrato de reserva de dominio',
+  'Ahorro encajado': 'Autorización de encaje',
+}
+
+export interface Documento { nombre: string; categoria: string; fecha: ISODate; estado: 'Recibido' | 'Pendiente' }
+
+function documentosDe(op: Operacion, g: GarantiasOperacion | undefined): Documento[] {
+  const n = Number(op.id.slice(-4))
+  const docs: Documento[] = [
+    { nombre: 'Solicitud de crédito', categoria: 'Crédito', fecha: addDays(op.fechaDesembolso, -12), estado: 'Recibido' },
+    { nombre: 'Pagaré a la orden', categoria: 'Crédito', fecha: op.fechaDesembolso, estado: 'Recibido' },
+    { nombre: 'Contrato de mutuo', categoria: 'Crédito', fecha: op.fechaDesembolso, estado: 'Recibido' },
+    { nombre: 'Tabla de amortización firmada', categoria: 'Crédito', fecha: op.fechaDesembolso, estado: n % 9 === 4 ? 'Pendiente' : 'Recibido' },
+  ]
+  if (op.producto === 'Consumo' || op.producto === 'Vivienda') {
+    docs.push({ nombre: 'Póliza de seguro de desgravamen', categoria: 'Seguros', fecha: op.fechaDesembolso, estado: n % 7 === 3 ? 'Pendiente' : 'Recibido' })
+  }
+  g?.reales.forEach((r) => {
+    docs.push({ nombre: NOMBRE_DOC[r.tipo], categoria: 'Garantías', fecha: r.fechaAvaluo, estado: r.estado === 'En trámite' ? 'Pendiente' : 'Recibido' })
+    if (r.tipo !== 'Ahorro encajado') docs.push({ nombre: `Informe de avalúo (${r.tipo.toLowerCase()})`, categoria: 'Garantías', fecha: r.fechaAvaluo, estado: 'Recibido' })
+  })
+  g?.garantes.forEach((x) => docs.push({ nombre: `Cédula y firma del garante ${x.nombre}`, categoria: 'Garantes', fecha: op.fechaDesembolso, estado: 'Recibido' }))
+  return docs
+}
+
+/** Fecha en que quedó cubierta cada cuota, recorriendo los pagos en orden. */
+function fechasDePago(op: Operacion): (ISODate | null)[] {
+  const fechas: (ISODate | null)[] = op.tabla.map(() => null)
+  let acumulado = 0
+  let objetivo = 0
+  let k = 0
+  for (const p of pagosDe(op.id)) {
+    if (p.tipo === 'Abono a capital') continue
+    acumulado = round2(acumulado + p.interes + p.capital)
+    if (p.tipo === 'Precancelación') {
+      for (; k < op.tabla.length; k++) fechas[k] = p.fecha
+      break
+    }
+    while (k < op.tabla.length && acumulado >= round2(objetivo + op.tabla[k].cuota) - 0.005) {
+      objetivo = round2(objetivo + op.tabla[k].cuota)
+      fechas[k++] = p.fecha
+    }
+  }
+  return fechas
+}
+
+export const mediosPago = MEDIOS
+
+function garantiasDe(opId: string, saldo: number) {
+  const g = db.garantias.find((x) => x.operacionId === opId) ?? { operacionId: opId, garantes: [], reales: [] }
+  const valorReal = round2(g.reales.filter((r) => r.estado !== 'Liberada').reduce((s, r) => s + r.valorAvaluo, 0))
+  return { ...g, valorReal, cobertura: saldo > 0 ? valorReal / saldo : 0 }
+}
+
 export async function obtenerOperacion(id: string) {
   const op = db.operaciones.find((o) => o.id === id)
   if (!op) return esperar(null)
-  return esperar({ ...vistaOperacion(op), pagos: pagosDe(id).slice().reverse(), juicio: db.juicios.find((j) => j.operacionId === id) })
+  const v = vistaOperacion(op)
+  const g = garantiasDe(id, v.saldoCapital)
+  return esperar({
+    ...v,
+    pagos: pagosDe(id).slice().reverse(),
+    juicio: db.juicios.find((j) => j.operacionId === id),
+    saldos: saldosOperacion(op, v, HOY),
+    devengo: tablaDevengo(op, v, HOY),
+    garantias: g,
+    coberturaMinima: COBERTURA_MINIMA[op.producto],
+    estadoCuenta: estadoDeCuenta(op, v),
+    documentos: documentosDe(op, g),
+    fechasPago: fechasDePago(op),
+    promesas: db.promesas.filter((p) => p.operacionId === id).map((p) => ({ ...p, estado: estadoPromesa(p) })),
+  })
+}
+
+/** Operaciones en las que el cliente es garante. */
+function garantiasPrestadas(clienteId: string) {
+  return db.garantias
+    .filter((g) => g.garantes.some((x) => x.clienteId === clienteId))
+    .map((g) => ({
+      operacion: vistaOperacion(db.operaciones.find((o) => o.id === g.operacionId)!),
+      relacion: g.garantes.find((x) => x.clienteId === clienteId)!.relacion,
+    }))
+}
+
+// ── Precancelación y abono a capital ───────────────────────────────────────
+export function liquidacion(operacionId: string) {
+  const op = db.operaciones.find((o) => o.id === operacionId)!
+  return saldosOperacion(op, estadoOperacion(op, pagosDe(op.id), HOY), HOY)
+}
+
+function nuevoIdPago() {
+  return `PG-${String(Math.max(...db.pagos.map((x) => Number(x.id.slice(3)))) + 1).padStart(5, '0')}`
+}
+const referenciaDemo = () => `DEMO-${Date.now().toString().slice(-6)}`
+
+export async function precancelar(input: { operacionId: string; medio: MedioPago }) {
+  const op = db.operaciones.find((o) => o.id === input.operacionId)!
+  const est = estadoOperacion(op, pagosDe(op.id), HOY)
+  if (est.cancelada) throw new Error('La operación ya está cancelada.')
+  const s = saldosOperacion(op, est, HOY)
+  const pago: Pago = {
+    id: nuevoIdPago(), operacionId: op.id, clienteId: op.clienteId, fecha: HOY,
+    monto: s.liquidacion, mora: s.mora, interes: round2(s.interesVencido + s.interesEnCurso), capital: est.saldoCapital,
+    medio: input.medio, tipo: 'Precancelación', referencia: referenciaDemo(), conciliado: false, registradoEnDemo: true,
+  }
+  db.pagos.push(pago)
+  db.asientos.push(asientoDePago(pago, db.asientos.length + 1))
+  db.garantias.find((x) => x.operacionId === op.id)?.reales.forEach((r) => { r.estado = 'Liberada' })
+  notificar()
+  return esperar(pago)
+}
+
+/** Simula un abono extraordinario a capital. Solo se permite con la operación al día. */
+export function simularAbono(operacionId: string, monto: number, modo: ModoRecalculo) {
+  const op = db.operaciones.find((o) => o.id === operacionId)!
+  const est = estadoOperacion(op, pagosDe(op.id), HOY)
+  const despuesDe = op.tabla.findIndex((c, i) => (est.aplicadoPorCuota[i] ?? 0) < c.cuota - 0.005)
+  const siguiente = despuesDe >= 0 ? op.tabla[despuesDe] : undefined
+  const maximo = round2(est.saldoCapital - 1)
+  let bloqueo: string | null = null
+  if (est.cancelada) bloqueo = 'La operación ya está cancelada.'
+  else if (est.valorVencido > 0) bloqueo = `Tiene ${dinero(est.valorVencido)} vencidos. Primero debe ponerse al día.`
+  else if (!siguiente) bloqueo = 'No quedan cuotas pendientes.'
+  else if ((est.aplicadoPorCuota[despuesDe] ?? 0) > 0) bloqueo = `La cuota ${siguiente.n} tiene un abono parcial. Complétala antes de abonar a capital.`
+  else if (!(monto > 0)) bloqueo = 'Escribe un monto mayor que cero.'
+  else if (monto > maximo) bloqueo = `El abono no puede superar ${dinero(maximo)}. Para pagar todo, usa la precancelación.`
+  if (bloqueo || !siguiente) return { bloqueo, maximo }
+  const params = { monto: op.monto, tasaAnual: op.tasaAnual, plazoMeses: op.tabla.length, sistema: op.sistema, fechaDesembolso: op.fechaDesembolso }
+  const tabla = recalcular(params, op.tabla, despuesDe, monto, modo)
+  const antes = op.tabla.slice(despuesDe)
+  const despues = tabla.slice(despuesDe)
+  return {
+    bloqueo: null,
+    maximo,
+    tabla,
+    desde: siguiente.n,
+    cuotaAntes: antes[0].cuota,
+    cuotaDespues: despues[0]?.cuota ?? 0,
+    plazoAntes: antes.length,
+    plazoDespues: despues.length,
+    interesAhorrado: round2(antes.reduce((s, c) => s + c.interes, 0) - despues.reduce((s, c) => s + c.interes, 0)),
+  }
+}
+
+export async function abonarCapital(input: { operacionId: string; monto: number; modo: ModoRecalculo; medio: MedioPago }) {
+  const sim = simularAbono(input.operacionId, input.monto, input.modo)
+  if (sim.bloqueo !== null || !sim.tabla) throw new Error(sim.bloqueo ?? 'No se pudo calcular el abono.')
+  const op = db.operaciones.find((o) => o.id === input.operacionId)!
+  const pago: Pago = {
+    id: nuevoIdPago(), operacionId: op.id, clienteId: op.clienteId, fecha: HOY, monto: round2(input.monto), mora: 0, interes: 0, capital: round2(input.monto),
+    medio: input.medio, tipo: 'Abono a capital', referencia: referenciaDemo(), conciliado: false, registradoEnDemo: true,
+  }
+  op.recalculos = [...(op.recalculos ?? []), {
+    fecha: HOY, pagoId: pago.id, abono: pago.monto, modo: input.modo,
+    cuotaAntes: sim.cuotaAntes, cuotaDespues: sim.cuotaDespues, plazoAntes: sim.plazoAntes, plazoDespues: sim.plazoDespues,
+  }]
+  op.tabla = sim.tabla
+  db.pagos.push(pago)
+  db.asientos.push(asientoDePago(pago, db.asientos.length + 1))
+  notificar()
+  return esperar(pago)
 }
 
 // ── Pagos ───────────────────────────────────────────────────────────────────
@@ -258,7 +459,7 @@ export async function registrarPago(input: { operacionId: string; monto: number;
   const prev = previsualizarPago(input.operacionId, input.monto)
   const op = db.operaciones.find((o) => o.id === input.operacionId)!
   const pago: Pago = {
-    id: `PG-${String(Math.max(...db.pagos.map((x) => Number(x.id.slice(3)))) + 1).padStart(5, '0')}`,
+    id: nuevoIdPago(),
     operacionId: op.id,
     clienteId: op.clienteId,
     fecha: HOY,

@@ -96,6 +96,48 @@ export interface Operacion {
   sistema: Sistema
   fechaDesembolso: ISODate
   tabla: Cuota[]
+  /** Abonos extraordinarios a capital que recalcularon la tabla. */
+  recalculos?: Recalculo[]
+}
+
+export interface Recalculo {
+  fecha: ISODate
+  pagoId: string
+  abono: number
+  modo: 'reducir-cuota' | 'reducir-plazo'
+  cuotaAntes: number
+  cuotaDespues: number
+  plazoAntes: number
+  plazoDespues: number
+}
+
+export interface Garante {
+  id: string
+  /** Si el garante también es cliente, su ficha. */
+  clienteId?: string
+  nombre: string
+  cedula: string
+  telefono: string
+  relacion: string
+  ingresos: number
+}
+
+export type TipoGarantia = 'Hipoteca' | 'Prenda comercial' | 'Prenda vehicular' | 'Ahorro encajado'
+
+export interface GarantiaReal {
+  id: string
+  tipo: TipoGarantia
+  descripcion: string
+  valorAvaluo: number
+  fechaAvaluo: ISODate
+  detalle: string
+  estado: 'Constituida' | 'En trámite' | 'Liberada'
+}
+
+export interface GarantiasOperacion {
+  operacionId: string
+  garantes: Garante[]
+  reales: GarantiaReal[]
 }
 
 /** Un pago se aplica en orden: mora, interés y luego capital de la cuota más antigua. */
@@ -109,7 +151,7 @@ export interface Pago {
   interes: number
   capital: number
   medio: MedioPago
-  tipo: 'Cuota' | 'Abono parcial' | 'Abono a capital'
+  tipo: 'Cuota' | 'Abono parcial' | 'Abono a capital' | 'Precancelación'
   referencia: string
   conciliado: boolean
   registradoEnDemo?: boolean

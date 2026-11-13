@@ -21,7 +21,7 @@ Stack: Vite + React + TypeScript + Tailwind CSS v4 + Recharts, React Router (Has
 |---|---|---|
 | `#/` | Panel | Saldo, morosidad, recuperado vs. exigible, cartera por antigüedad (roseta guilloché), promesas, juicios, campañas y dónde actuar hoy. |
 | `#/clientes` | Clientes | Listado con filtros; alta y edición en seis pasos (identificación con validación de cédula/RUC, contacto, actividad económica y capacidad de pago, referencias y cónyuge, canales autorizados y gestor); ficha con pestañas y historial de cambios. Los clientes no se borran: se inactivan, y solo si no tienen operaciones vigentes ni juicios. |
-| `#/operaciones` | Operaciones | Cartera con filtros y orden; el detalle trae la tabla de amortización con el estado de cada cuota y un formulario de pago. |
+| `#/operaciones` | Operaciones | Cartera con filtros (antigüedad, producto, origen, etapa, gestor, estado) y orden. El detalle tiene pestañas: resumen con saldos a la fecha (para ponerse al día y para cancelar hoy), tabla de amortización con fecha y atraso de cada pago, **tabla devengada**, garantías y cobertura, pagos, **estado de cuenta** imprimible, cobranza y documentos. Acciones: registrar pago, abono a capital con recálculo y precancelación. |
 | `#/amortizacion` | Amortización | Simulador francés / alemán, comparación de cuotas y recálculo con abono extraordinario (bajar cuota o acortar plazo). |
 | `#/pagos` | Pagos y abonos | Historial filtrable y registro de pagos con vista previa del efecto en el saldo. |
 | `#/cobranza` | Cobranza automatizada | Campañas (llamada, SMS, WhatsApp, correo), reglas por días de mora, promesas y la pantalla de integración con **n8n** (solo interfaz). |
@@ -36,6 +36,8 @@ Los datos no son números sueltos: se **generan** a partir de reglas, con una se
 - Cada operación tiene su tabla de amortización real (`src/domain/amortizacion.ts`). La suma del capital es igual al monto desembolsado.
 - Los pagos se aplican en orden: recargo por mora, luego interés y luego capital de la cuota más antigua (`src/domain/cartera.ts`). El saldo es `monto − capital pagado`.
 - Los días de mora, el tramo de antigüedad y la etapa de cobranza se calculan a partir de la primera cuota impaga.
+- La tabla devengada reconoce el interés de cada cuota día a día. Con más de 60 días de mora (parámetro de la demo, `DIAS_SUSPENSION_DEVENGO`), el interés pasa a cuentas de orden.
+- Un abono a capital recalcula las cuotas futuras (bajar cuota o acortar plazo). La precancelación cobra capital, interés devengado hasta hoy y recargo, y libera las garantías.
 - Los juicios nacen de las operaciones con más de 120 días de mora; sus costas generan asientos de gasto.
 - Cada desembolso, pago y costa genera su asiento contable. La cuenta *1.4.01 Cartera de créditos* cuadra al centavo con la suma de saldos de las operaciones (lo verás en **Contabilidad → Balance y cuadre**).
 - Si creas o editas un cliente, el cambio queda en su historial con usuario, fecha y hora.
@@ -63,6 +65,7 @@ Las pantallas **nunca** importan de `src/mocks`: solo llaman funciones asíncron
 - **Más o menos clientes:** `generarClientes(118)` en `src/mocks/generar.ts`. Los datos de ficha (direcciones, ingresos, referencias) salen de `src/mocks/fichas.ts`, con su propia semilla.
 - **Más o menos mora:** el reparto de perfiles (`puntual`, `atrasado`, `irregular`) y la lista `ATRASOS` (meses sin pagar) en `src/mocks/generar.ts`.
 - **Otro conjunto aleatorio:** cambia la semilla en `crearRng(20261113)`.
+- **Garantes y garantías:** `src/mocks/garantias.ts`; la cobertura mínima por producto está en `COBERTURA_MINIMA` (`src/domain/operacion.ts`).
 - **Campañas, reglas, flujos n8n y plan de cuentas:** `src/mocks/cobranza.ts`.
 - **Fecha de corte:** `HOY` en `src/mocks/catalogos.ts`.
 

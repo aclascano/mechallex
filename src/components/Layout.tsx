@@ -40,6 +40,15 @@ function useTema() {
   useEffect(() => {
     document.documentElement.classList.toggle('dark', oscuro)
     try { localStorage.setItem('mx-theme', oscuro ? 'dark' : 'light') } catch { /* sin almacenamiento */ }
+    // Al imprimir siempre en claro: tinta oscura sobre papel blanco.
+    const antes = () => document.documentElement.classList.remove('dark')
+    const despues = () => document.documentElement.classList.toggle('dark', oscuro)
+    window.addEventListener('beforeprint', antes)
+    window.addEventListener('afterprint', despues)
+    return () => {
+      window.removeEventListener('beforeprint', antes)
+      window.removeEventListener('afterprint', despues)
+    }
   }, [oscuro])
   return [oscuro, setOscuro] as const
 }
@@ -131,10 +140,10 @@ export function Layout() {
   }, [menu])
 
   return (
-    <div className="min-h-dvh lg:pl-64">
+    <div className="min-h-dvh lg:pl-64 print:pl-0">
       <a href="#contenido" className="sr-only z-50 rounded-md bg-panel px-3 py-2 focus:not-sr-only focus:fixed focus:top-3 focus:left-3">Saltar al contenido</a>
 
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 lg:block">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 lg:block print:hidden">
         <Riel />
       </aside>
 
@@ -150,7 +159,7 @@ export function Layout() {
         </div>
       )}
 
-      <header className="sticky top-0 z-20 border-b border-line bg-paper/85 backdrop-blur-md">
+      <header className="sticky top-0 z-20 border-b border-line bg-paper/85 backdrop-blur-md print:hidden">
         <div className="mx-auto flex h-16 max-w-[1440px] items-center gap-3 px-4 sm:px-6 lg:px-8">
           <button className="grid h-9 w-9 place-items-center rounded-[9px] border border-line-strong text-ink-2 lg:hidden" onClick={() => setMenu(true)} aria-label="Abrir menú">
             <Menu size={18} />
@@ -194,7 +203,7 @@ export function Layout() {
         </div>
       </header>
 
-      <main id="contenido" className="mx-auto max-w-[1440px] px-4 py-7 sm:px-6 lg:px-8 lg:py-9">
+      <main id="contenido" className="mx-auto max-w-[1440px] px-4 py-7 sm:px-6 lg:px-8 lg:py-9 print:p-0">
         <Outlet />
       </main>
     </div>

@@ -1,5 +1,5 @@
-import { Check } from 'lucide-react'
-import type { ButtonHTMLAttributes, ReactNode, SelectHTMLAttributes, InputHTMLAttributes } from 'react'
+import { Check, X } from 'lucide-react'
+import { useEffect, useId, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react'
 import { ETAPAS, TRAMOS } from '../domain/cartera'
 import type { EtapaCobranza, Tramo } from '../domain/tipos'
 import { cx } from '../lib/formato'
@@ -234,6 +234,47 @@ export function Aviso({ children, tono = 'ok' }: { children: ReactNode; tono?: '
     <div role="status" className={cx('flex items-center gap-2 rounded-[10px] px-3 py-2 text-[0.85rem]', tono === 'ok' ? 'bg-ok-soft text-ok' : 'bg-rose-soft text-rose-ink')} style={{ animation: 'aparecer 240ms var(--ease-out-expo) both' }}>
       <Check size={16} aria-hidden="true" />
       {children}
+    </div>
+  )
+}
+
+// ── Diálogo ─────────────────────────────────────────────────────────────────
+export function Dialogo({ titulo, descripcion, onCerrar, children, ancho = 'max-w-lg' }: {
+  titulo: string; descripcion?: ReactNode; onCerrar: () => void; children: ReactNode; ancho?: string
+}) {
+  const caja = useRef<HTMLDivElement>(null)
+  const cerrar = useRef(onCerrar)
+  cerrar.current = onCerrar
+  const id = useId()
+  useEffect(() => {
+    const previo = document.activeElement as HTMLElement | null
+    const primero = caja.current?.querySelector<HTMLElement>('input, select, textarea, button:not([data-cerrar])')
+    primero?.focus()
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && cerrar.current()
+    window.addEventListener('keydown', esc)
+    const overflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', esc)
+      document.body.style.overflow = overflow
+      previo?.focus?.()
+    }
+  }, [])
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby={id}>
+      <button className="absolute inset-0 bg-[oklch(0.1_0_0/0.45)] backdrop-blur-[2px]" aria-label="Cerrar" data-cerrar onClick={onCerrar} tabIndex={-1} />
+      <div ref={caja} className={cx('relative max-h-[92dvh] w-full overflow-y-auto rounded-t-[16px] border border-line bg-panel shadow-2xl sm:rounded-[14px]', ancho)} style={{ animation: 'aparecer 200ms var(--ease-out-expo) both' }}>
+        <div className="sticky top-0 z-[1] flex items-start justify-between gap-3 border-b border-line bg-panel px-5 pt-4 pb-3.5">
+          <div className="min-w-0">
+            <h2 id={id} className="text-[1rem] font-semibold">{titulo}</h2>
+            {descripcion && <p className="mt-0.5 text-[0.8rem] text-ink-3">{descripcion}</p>}
+          </div>
+          <button onClick={onCerrar} data-cerrar className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-ink-3 hover:bg-panel-2 hover:text-ink" aria-label="Cerrar">
+            <X size={17} />
+          </button>
+        </div>
+        <div className="p-5">{children}</div>
+      </div>
     </div>
   )
 }

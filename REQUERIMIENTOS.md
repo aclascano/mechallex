@@ -33,7 +33,7 @@ Marca: ✅ hecho · 🟡 propuesta (confirmar) · ❓ duda abierta
 - ✅ Sin eliminar: se **inactiva** con motivo, y solo si no tiene operaciones vigentes ni juicios.
 - Pendiente para módulos siguientes: pestañas *Garantías que presta*, *Gestiones* y *Documentos* (llegan con Operaciones y Cobranza).
 
-## 2. Operaciones (Cartera)
+## 2. Operaciones (Cartera) ✅
 
 - **Listado:** el actual, con más filtros (producto, oficina, gestor, etapa de cobranza).
 - **Detalle de la operación**, con pestañas:
@@ -47,13 +47,14 @@ Marca: ✅ hecho · 🟡 propuesta (confirmar) · ❓ duda abierta
     - Movimientos (desembolso, cuotas, pagos, cargos) con saldo corrido.
     - Rango de fechas configurable.
     - Vista imprimible / PDF del navegador.
-  - **Gestiones:** llamadas, mensajes y promesas registradas por cobranza.
+  - **Cobranza:** etapa, promesas y causa judicial. 🟡 La bitácora de gestiones llega con Cobranza.
   - **Documentos:** pagaré, tabla firmada y contrato. En la demo son solo nombres de archivo.
 - **Acciones:**
   - Registrar pago y precancelación (liquidación a la fecha).
   - Abono a capital con recálculo.
-  - Reestructurar o refinanciar (crea una operación nueva y cancela la anterior).
-  - Castigo (pasa a cuentas de orden).
+  - Reestructurar o refinanciar (crea una operación nueva y cancela la anterior). 🟡 Pendiente: depende de Nueva obligación.
+  - Castigo (pasa a cuentas de orden). 🟡 Pendiente: va con Contabilidad.
+- ✅ Agregado: **tabla devengada** (interés reconocido por días, cobrado, por cobrar y en cuentas de orden).
 
 ## 3. Nueva obligación (reemplaza "Amortización")
 

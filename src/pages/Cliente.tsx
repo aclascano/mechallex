@@ -10,7 +10,7 @@ import { cx, dinero, plural } from '../lib/formato'
 import { useServicio } from '../lib/useServicio'
 import { bloqueoInactivar, cambiarEstadoCliente, catalogosCliente, fechaCorte, obtenerCliente } from '../services/api'
 
-type Tab = 'resumen' | 'datos' | 'operaciones' | 'pagos' | 'cobranza' | 'historial'
+type Tab = 'resumen' | 'datos' | 'operaciones' | 'garantias' | 'pagos' | 'cobranza' | 'historial'
 
 export default function PaginaCliente() {
   const { id = '' } = useParams()
@@ -88,6 +88,7 @@ export default function PaginaCliente() {
           { id: 'resumen', label: 'Resumen' },
           { id: 'datos', label: 'Datos' },
           { id: 'operaciones', label: 'Operaciones', cuenta: d.operaciones.length },
+          { id: 'garantias', label: 'Garantías que presta', cuenta: d.garantiasPrestadas.length },
           { id: 'pagos', label: 'Pagos', cuenta: d.pagos.length },
           { id: 'cobranza', label: 'Cobranza', cuenta: d.promesas.length + d.juicios.length },
           { id: 'historial', label: 'Historial', cuenta: d.historial.length },
@@ -105,6 +106,27 @@ export default function PaginaCliente() {
       )}
       {tab === 'datos' && <Datos c={c} />}
       {tab === 'operaciones' && <TablaOperaciones ops={d.operaciones} />}
+      {tab === 'garantias' && (
+        <Panel titulo="Garantías que presta" detalle="Operaciones de otros clientes en las que es garante personal. Si el deudor no paga, responde solidariamente." cuerpo="">
+          {d.garantiasPrestadas.length === 0 ? <Vacio titulo="No es garante de ninguna operación" /> : (
+            <Tabla etiqueta="Garantías que presta">
+              <thead><tr><Th>Operación</Th><Th>Deudor</Th><Th>Relación</Th><Th>Antigüedad</Th><Th derecha>Vencido</Th><Th derecha>Saldo</Th></tr></thead>
+              <tbody>
+                {d.garantiasPrestadas.map(({ operacion: o, relacion }) => (
+                  <tr key={o.id} className="hover:bg-panel-2/60">
+                    <Td><Link to={`/operaciones/${o.id}?tab=garantias`} className="font-medium whitespace-nowrap hover:text-rose-ink">{o.id}</Link><span className="block text-[0.75rem] text-ink-3">{o.producto}</span></Td>
+                    <Td><Link to={`/clientes/${o.clienteId}`} className="hover:text-rose-ink">{o.cliente.nombre}</Link></Td>
+                    <Td className="text-ink-2">{relacion}</Td>
+                    <Td>{o.cancelada ? <Insignia tono="ok">Cancelada</Insignia> : <InsigniaTramo tramo={o.tramo} />}</Td>
+                    <Td derecha className={o.valorVencido > 0 ? 'font-medium text-bad' : 'text-ink-3'}>{dinero(o.valorVencido)}</Td>
+                    <Td derecha className="font-medium">{dinero(o.saldoCapital)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Tabla>
+          )}
+        </Panel>
+      )}
       {tab === 'pagos' && <TablaPagos pagos={d.pagos} titulo="Pagos registrados" alto />}
       {tab === 'cobranza' && (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">

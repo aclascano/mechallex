@@ -43,7 +43,8 @@ export const TASA_MORA_DIARIA = 0.0002
  */
 export function estadoOperacion(op: Operacion, pagos: Pago[], corte: ISODate): EstadoOperacion {
   const aplicables = pagos.filter((p) => p.fecha <= corte)
-  let bolsa = round2(aplicables.reduce((s, p) => s + p.interes + p.capital, 0))
+  // Los abonos extraordinarios a capital no cubren cuotas: recalculan la tabla.
+  let bolsa = round2(aplicables.filter((p) => p.tipo !== 'Abono a capital').reduce((s, p) => s + p.interes + p.capital, 0))
   const interesPagado = round2(aplicables.reduce((s, p) => s + p.interes, 0))
   const capitalPagado = round2(aplicables.reduce((s, p) => s + p.capital, 0))
 
@@ -70,8 +71,16 @@ export function estadoOperacion(op: Operacion, pagos: Pago[], corte: ISODate): E
     }
   }
 
-  const diasMora = primeraImpaga ? diffDays(corte, primeraImpaga) : 0
   const saldoCapital = round2(op.monto - capitalPagado)
+  const cancelada = saldoCapital <= 0.005
+  if (cancelada) {
+    // Cancelada (incluye precancelación): no quedan cuotas exigibles.
+    cuotasVencidas = 0
+    valorVencido = 0
+    primeraImpaga = undefined
+    proximaCuota = undefined
+  }
+  const diasMora = primeraImpaga ? diffDays(corte, primeraImpaga) : 0
   return {
     saldoCapital,
     capitalPagado,
@@ -84,13 +93,13 @@ export function estadoOperacion(op: Operacion, pagos: Pago[], corte: ISODate): E
     etapa: etapaDe(diasMora),
     proximaCuota,
     aplicadoPorCuota,
-    cancelada: saldoCapital <= 0.005,
+    cancelada,
   }
 }
 
 /** Reparte un monto neto (sin mora) entre interés y capital de las cuotas pendientes, en orden. */
 export function distribuirPago(op: Operacion, pagosPrevios: Pago[], montoNeto: number): { interes: number; capital: number; aplicado: number } {
-  let bolsa = round2(pagosPrevios.reduce((s, p) => s + p.interes + p.capital, 0))
+  let bolsa = round2(pagosPrevios.filter((p) => p.tipo !== 'Abono a capital').reduce((s, p) => s + p.interes + p.capital, 0))
   let restante = round2(montoNeto)
   let interes = 0
   let capital = 0
