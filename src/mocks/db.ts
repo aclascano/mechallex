@@ -1,4 +1,6 @@
 // Base de datos en memoria de la demo. Es lo único que se reemplaza al conectar una API real.
+import type { Caja, LoteRecaudo, Reverso } from '../domain/tipos'
+import { HOY, USUARIA_DEMO } from './catalogos'
 import { CAMPANIAS, FLUJOS_N8N, PLAN_CUENTAS, REGLAS } from './cobranza'
 import { generarBaseDemo } from './generar'
 
@@ -10,6 +12,10 @@ export const db = {
   reglas: REGLAS.map((r) => ({ ...r })),
   flujos: FLUJOS_N8N.map((f) => ({ ...f })),
   planCuentas: PLAN_CUENTAS,
+  reversos: [] as Reverso[],
+  // La caja del día arranca abierta para que la demo pueda recibir efectivo de inmediato.
+  caja: { fecha: HOY, cajero: USUARIA_DEMO.nombre, estado: 'Abierta', fondoInicial: 300, apertura: '08:30' } as Caja,
+  lotes: [] as LoteRecaudo[],
 }
 
 export type Db = typeof db

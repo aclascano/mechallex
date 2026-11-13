@@ -33,7 +33,7 @@ function Diario({ d }: { d: Datos }) {
         <Campo etiqueta="Origen">
           <Selector value={origen} onChange={(e) => setOrigen(e.target.value)}>
             <option value="">Todos</option>
-            {['Desembolso', 'Pago', 'Costas judiciales', 'Ajuste'].map((o) => <option key={o}>{o}</option>)}
+            {['Desembolso', 'Pago', 'Costas judiciales', 'Ajuste', 'Reverso'].map((o) => <option key={o}>{o}</option>)}
           </Selector>
         </Campo>
         <div className="tabular flex items-end gap-5 text-[0.8rem] text-ink-3 sm:justify-end">
@@ -56,7 +56,7 @@ function Diario({ d }: { d: Datos }) {
                   <Td className="tabular font-medium">{a.id}</Td>
                   <Td className="whitespace-nowrap text-ink-2">{fmtFecha(a.fecha)}</Td>
                   <Td>{a.glosa}</Td>
-                  <Td><Insignia tono={a.origen === 'Pago' ? 'ok' : a.origen === 'Desembolso' ? 'acero' : a.origen === 'Costas judiciales' ? 'rosa' : 'neutro'}>{a.origen}</Insignia></Td>
+                  <Td><Insignia tono={a.origen === 'Pago' ? 'ok' : a.origen === 'Desembolso' ? 'acero' : a.origen === 'Costas judiciales' ? 'rosa' : a.origen === 'Reverso' ? 'bad' : 'neutro'}>{a.origen}</Insignia></Td>
                   <Td derecha>{dinero(total)}</Td>
                   <Td derecha>{dinero(total)}</Td>
                 </tr>

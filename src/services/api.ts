@@ -8,7 +8,7 @@ import { addDays, addMonths, diffDays, endOfMonth, fmtMes, monthKey, startOfMont
 import { diferencias, normalizar } from '../domain/clientes'
 import { COBERTURA_MINIMA, detallePago, saldosOperacion, tablaDevengo, valorCuotas } from '../domain/operacion'
 import { costos, primerVencimiento, tablaObligacion, validarPaso, PASOS_OBLIGACION, type DatosObligacion, type ProductoCredito } from '../domain/obligacion'
-import type { CambioCliente, Cliente, DatosCliente, EstadoOperacion, GarantiasOperacion, MedioPago, Operacion, Pago, Promesa, Tramo } from '../domain/tipos'
+import type { CambioCliente, Cliente, DatosCliente, EstadoOperacion, GarantiasOperacion, LoteRecaudo, MedioPago, Operacion, Pago, Promesa, Tramo } from '../domain/tipos'
 import { dinero } from '../lib/formato'
 import { CIUDADES, CONDICIONES_PRODUCTO, GESTORES, HOY, MEDIOS, PRODUCTOS, USUARIA_DEMO } from '../mocks/catalogos'
 import { ACTIVIDADES, PROVINCIA_DE, RELACIONES } from '../mocks/fichas'
@@ -530,11 +530,14 @@ export function liquidacion(operacionId: string) {
 }
 
 function nuevoIdPago() {
-  return `PG-${String(Math.max(...db.pagos.map((x) => Number(x.id.slice(3)))) + 1).padStart(5, '0')}`
+  const ids = [...db.pagos, ...db.reversos.map((r) => r.pago)].map((x) => Number(x.id.slice(3)))
+  return `PG-${String(Math.max(...ids) + 1).padStart(5, "0")}`
 }
 const referenciaDemo = () => `DEMO-${Date.now().toString().slice(-6)}`
 
 export async function precancelar(input: { operacionId: string; medio: MedioPago }) {
+  const cobro = bloqueoCobro(input.medio)
+  if (cobro) throw new Error(cobro)
   const op = db.operaciones.find((o) => o.id === input.operacionId)!
   const est = estadoOperacion(op, pagosDe(op.id), HOY)
   if (est.cancelada) throw new Error('La operación ya está cancelada.')
@@ -584,6 +587,8 @@ export function simularAbono(operacionId: string, monto: number, modo: ModoRecal
 }
 
 export async function abonarCapital(input: { operacionId: string; monto: number; modo: ModoRecalculo; medio: MedioPago }) {
+  const cobro = bloqueoCobro(input.medio)
+  if (cobro) throw new Error(cobro)
   const sim = simularAbono(input.operacionId, input.monto, input.modo)
   if (sim.bloqueo !== null || !sim.tabla) throw new Error(sim.bloqueo ?? 'No se pudo calcular el abono.')
   const op = db.operaciones.find((o) => o.id === input.operacionId)!
@@ -594,6 +599,7 @@ export async function abonarCapital(input: { operacionId: string; monto: number;
   op.recalculos = [...(op.recalculos ?? []), {
     fecha: HOY, pagoId: pago.id, abono: pago.monto, modo: input.modo,
     cuotaAntes: sim.cuotaAntes, cuotaDespues: sim.cuotaDespues, plazoAntes: sim.plazoAntes, plazoDespues: sim.plazoDespues,
+    tablaAnterior: op.tabla,
   }]
   op.tabla = sim.tabla
   db.pagos.push(pago)
@@ -620,7 +626,17 @@ export function previsualizarPago(operacionId: string, monto: number, fecha: ISO
   return { antes, despues, mora: moraCobrada, interes, capital, aplicado: simulado.monto, excedente: round2(monto - simulado.monto) }
 }
 
-export async function registrarPago(input: { operacionId: string; monto: number; medio: MedioPago; referencia?: string }) {
+/** Por qué no se puede recibir este pago ahora (por ejemplo, efectivo con la caja cerrada). */
+export function bloqueoCobro(medio: MedioPago): string | null {
+  if (medio === 'Ventanilla' && db.caja.estado !== 'Abierta') {
+    return db.caja.estado === 'Cuadrada' ? 'La caja del día ya se cerró: no se puede recibir efectivo en ventanilla.' : 'Abre la caja del día para recibir efectivo en ventanilla.'
+  }
+  return null
+}
+
+function aplicarPago(input: { operacionId: string; monto: number; medio: MedioPago; referencia?: string }): Pago {
+  const bloqueo = bloqueoCobro(input.medio)
+  if (bloqueo) throw new Error(bloqueo)
   const prev = previsualizarPago(input.operacionId, input.monto)
   const op = db.operaciones.find((o) => o.id === input.operacionId)!
   const pago: Pago = {
@@ -640,6 +656,177 @@ export async function registrarPago(input: { operacionId: string; monto: number;
   }
   db.pagos.push(pago)
   db.asientos.push({ ...asientoDePago(pago, db.asientos.length + 1) })
+  return pago
+}
+
+// ── Reverso de pagos ────────────────────────────────────────────────────────
+const horaActual = () => new Date().toTimeString().slice(0, 5)
+
+/** Reglas: solo pagos del día y solo el último pago de la operación. */
+export function bloqueoReverso(pagoId: string): string | null {
+  const p = db.pagos.find((x) => x.id === pagoId)
+  if (!p) return db.reversos.some((r) => r.pago.id === pagoId) ? 'Este pago ya fue reversado.' : 'Pago no encontrado.'
+  if (p.fecha !== HOY) return 'Solo se reversan pagos del día. Para fechas anteriores se registra un ajuste contable.'
+  const ultimo = pagosDe(p.operacionId).at(-1)!
+  if (ultimo.id !== p.id) return `Primero hay que reversar el pago más reciente de la operación (${ultimo.id}).`
+  if (p.medio === 'Ventanilla' && db.caja.estado === 'Cuadrada') return 'La caja del día ya se cerró.'
+  return null
+}
+
+export async function reversarPago(pagoId: string, motivo: string) {
+  const bloqueo = bloqueoReverso(pagoId)
+  if (bloqueo) throw new Error(bloqueo)
+  if (motivo.trim().length < 5) throw new Error('Explica el motivo del reverso.')
+  const i = db.pagos.findIndex((x) => x.id === pagoId)
+  const [pago] = db.pagos.splice(i, 1)
+  const op = db.operaciones.find((o) => o.id === pago.operacionId)!
+  if (pago.tipo === 'Abono a capital') {
+    const r = op.recalculos?.find((x) => x.pagoId === pago.id)
+    if (r?.tablaAnterior) op.tabla = r.tablaAnterior
+    op.recalculos = op.recalculos?.filter((x) => x.pagoId !== pago.id)
+  }
+  if (pago.tipo === 'Precancelación') db.garantias.find((g) => g.operacionId === op.id)?.reales.forEach((r) => { r.estado = 'Constituida' })
+  const original = db.asientos.find((a) => a.referencia === pago.id)
+  const asientoId = `AS-${String(db.asientos.length + 1).padStart(5, '0')}`
+  db.asientos.push({
+    id: asientoId, fecha: HOY, glosa: `Reverso de ${pago.id}: ${motivo.trim()}`, origen: 'Reverso', referencia: pago.id,
+    lineas: (original?.lineas ?? asientoDePago(pago, 0).lineas).map((l) => ({ cuenta: l.cuenta, debe: l.haber, haber: l.debe })),
+  })
+  db.reversos.push({ pago, fecha: HOY, hora: horaActual(), motivo: motivo.trim(), usuario: USUARIA_DEMO.nombre, asientoId })
+  notificar()
+  return esperar(pago)
+}
+
+// ── Caja del día ────────────────────────────────────────────────────────────
+export const DENOMINACIONES = ['100', '50', '20', '10', '5', '1', '0.50', '0.25', '0.10', '0.05', '0.01'] as const
+
+export async function obtenerCaja() {
+  const pagos = db.pagos.filter((p) => p.fecha === HOY).map((p) => ({ ...p, cliente: db.clientes.find((c) => c.id === p.clienteId)! }))
+  const desembolsosEfectivo = db.operaciones.filter((o) => o.fechaDesembolso === HOY && o.originacion?.medio === 'Efectivo')
+    .map((o) => ({ id: o.id, cliente: db.clientes.find((c) => c.id === o.clienteId)!.nombre, neto: o.originacion!.neto }))
+  const porMedio = MEDIOS.map((m) => {
+    const del = pagos.filter((p) => p.medio === m)
+    return { medio: m, n: del.length, monto: round2(del.reduce((s, p) => s + p.monto, 0)) }
+  })
+  const ingresosEfectivo = porMedio.find((m) => m.medio === 'Ventanilla')!.monto
+  const egresosEfectivo = round2(desembolsosEfectivo.reduce((s, d) => s + d.neto, 0))
+  return esperar({
+    caja: { ...db.caja },
+    pagos: pagos.reverse(),
+    reversos: db.reversos.filter((r) => r.fecha === HOY).map((r) => ({ ...r, cliente: db.clientes.find((c) => c.id === r.pago.clienteId)! })),
+    desembolsosEfectivo,
+    porMedio,
+    total: round2(pagos.reduce((s, p) => s + p.monto, 0)),
+    ingresosEfectivo,
+    egresosEfectivo,
+    esperado: round2(db.caja.fondoInicial + ingresosEfectivo - egresosEfectivo),
+  })
+}
+
+export async function abrirCaja(fondo: number) {
+  if (db.caja.estado !== 'Cerrada') throw new Error('La caja ya está abierta o cerrada por hoy.')
+  if (!(fondo >= 0)) throw new Error('Ingresa el fondo inicial.')
+  Object.assign(db.caja, { estado: 'Abierta', fondoInicial: round2(fondo), apertura: horaActual() })
+  notificar()
+  return esperar(db.caja)
+}
+
+export async function cerrarCaja(denominaciones: Record<string, number>, observacion: string) {
+  if (db.caja.estado !== 'Abierta') throw new Error('La caja no está abierta.')
+  const contado = round2(Object.entries(denominaciones).reduce((s, [d, n]) => s + Number(d) * (n || 0), 0))
+  const { esperado } = await obtenerCaja()
+  const diferencia = round2(contado - esperado)
+  if (Math.abs(diferencia) > 0.004 && observacion.trim().length < 5) throw new Error('Hay diferencia: explica el sobrante o faltante en la observación.')
+  db.caja.estado = 'Cuadrada'
+  db.caja.cierre = { denominaciones, contado, esperado, diferencia, hora: horaActual(), observacion: observacion.trim() }
+  notificar()
+  return esperar(db.caja)
+}
+
+// ── Recaudo masivo ──────────────────────────────────────────────────────────
+export const COLUMNAS_LOTE = 'referencia;identificacion;operacion;monto;fecha'
+
+/** Archivo de ejemplo con pagos válidos y algunos con errores típicos. */
+export function archivoEjemplo() {
+  const vigentes = todasLasOperaciones().filter((o) => !o.cancelada && o.origen === 'Propia').sort((a, b) => a.id.localeCompare(b.id))
+  const al = vigentes.filter((o) => o.diasMora === 0).slice(3, 8)
+  const mora = vigentes.find((o) => o.diasMora > 0 && o.diasMora < 60)!
+  const cancelada = todasLasOperaciones().find((o) => o.cancelada)
+  const linea = (ref: string, ced: string, op: string, monto: number, fecha = HOY) => `${ref};${ced};${op};${monto.toFixed(2)};${fecha}`
+  const filas = [
+    ...al.map((o, i) => linea(`BCO-${880100 + i}`, o.cliente.cedula, o.id, o.proximaCuota?.valor ?? 100, addDays(HOY, -1))),
+    linea('BCO-880105', mora.cliente.cedula, mora.id, saldosOperacion(db.operaciones.find((o) => o.id === mora.id)!, mora, HOY).exigible),
+    linea('BCO-880106', '0912345678', 'OP-2026-9999', 150),
+    linea('BCO-880107', al[0].cliente.cedula, al[1].id, 90),
+    linea('BCO-880101', al[2].cliente.cedula, al[2].id, 50),
+    linea('BCO-880108', al[3].cliente.cedula, al[3].id, 0),
+  ]
+  if (cancelada) filas.push(linea('BCO-880109', cancelada.cliente.cedula, cancelada.id, 120))
+  return [COLUMNAS_LOTE, ...filas].join('\n')
+}
+
+export interface FilaLote {
+  linea: number
+  referencia: string
+  identificacion: string
+  operacion: string
+  monto: number
+  fecha: string
+  cliente?: string
+  aplicable: boolean
+  motivo: string
+}
+
+export function validarLote(texto: string): { filas: FilaLote[]; error: string | null } {
+  const lineas = texto.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  if (!lineas.length) return { filas: [], error: 'El archivo está vacío.' }
+  if (lineas[0].toLowerCase().replace(/\s/g, '') !== COLUMNAS_LOTE) return { filas: [], error: `La primera línea debe ser: ${COLUMNAS_LOTE}` }
+  const vistas = new Set<string>()
+  const usadas = new Set(db.pagos.map((p) => p.referencia))
+  const filas = lineas.slice(1).map((l, i): FilaLote => {
+    const [referencia = '', identificacion = '', operacion = '', montoTxt = '', fecha = ''] = l.split(';').map((x) => x.trim())
+    const monto = Number(montoTxt.replace(',', '.'))
+    const base = { linea: i + 2, referencia, identificacion, operacion, monto, fecha }
+    const no = (motivo: string, cliente?: string): FilaLote => ({ ...base, cliente, aplicable: false, motivo })
+    if (l.split(';').length !== 5) return no('La línea no tiene 5 columnas.')
+    if (vistas.has(referencia)) return no('Referencia repetida en el archivo.')
+    vistas.add(referencia)
+    if (usadas.has(referencia)) return no('Esta referencia ya se aplicó antes.')
+    const op = db.operaciones.find((o) => o.id === operacion)
+    if (!op) return no('La operación no existe.')
+    const cli = db.clientes.find((c) => c.id === op.clienteId)!
+    if (cli.cedula !== identificacion) return no('La identificación no corresponde al titular de la operación.', cli.nombre)
+    if (!(monto > 0)) return no('Monto no válido.', cli.nombre)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || fecha > HOY) return no('Fecha no válida o futura.', cli.nombre)
+    const est = estadoOperacion(op, pagosDe(op.id), HOY)
+    if (est.cancelada) return no('La operación ya está cancelada.', cli.nombre)
+    const prev = previsualizarPago(op.id, monto)
+    return { ...base, cliente: cli.nombre, aplicable: true, motivo: prev.excedente > 0.004 ? `Excede la deuda; se aplicarán ${dinero(prev.aplicado)}.` : 'Listo para aplicar.' }
+  })
+  return { filas, error: null }
+}
+
+export async function aplicarLote(texto: string, archivo: string) {
+  const { filas, error } = validarLote(texto)
+  if (error) throw new Error(error)
+  const aplicables = filas.filter((f) => f.aplicable)
+  let monto = 0
+  aplicables.forEach((f) => {
+    const p = aplicarPago({ operacionId: f.operacion, monto: f.monto, medio: 'Corresponsal', referencia: f.referencia })
+    monto += p.monto
+  })
+  const lote: LoteRecaudo = { id: `LT-${String(db.lotes.length + 1).padStart(3, '0')}`, fecha: HOY, hora: horaActual(), archivo, aplicados: aplicables.length, monto: round2(monto), rechazados: filas.length - aplicables.length }
+  db.lotes.push(lote)
+  notificar()
+  return esperar(lote)
+}
+
+export async function listarLotes() {
+  return esperar(db.lotes.slice().reverse())
+}
+
+export async function registrarPago(input: { operacionId: string; monto: number; medio: MedioPago; referencia?: string }) {
+  const pago = aplicarPago(input)
   notificar()
   return esperar(comprobante(pago, true))
 }
@@ -648,7 +835,8 @@ export async function registrarPago(input: { operacionId: string; monto: number;
 export function comprobante(pago: Pago, conHora = false) {
   const op = db.operaciones.find((o) => o.id === pago.operacionId)!
   const cliente = db.clientes.find((c) => c.id === pago.clienteId)!
-  const despues = estadoOperacion(op, pagosDe(op.id).filter((p) => p.fecha < pago.fecha || (p.fecha === pago.fecha && p.id <= pago.id)), pago.fecha)
+  const lista = [...pagosDe(op.id).filter((p) => p.id !== pago.id), pago]
+  const despues = estadoOperacion(op, lista.filter((p) => p.fecha < pago.fecha || (p.fecha === pago.fecha && p.id <= pago.id)), pago.fecha)
   const hora = conHora ? ` · ${new Date().toTimeString().slice(0, 5)}` : ''
   return { pago, cliente, operacion: { id: op.id, producto: op.producto }, saldoDespues: despues.saldoCapital, proximaCuota: despues.proximaCuota, cancelada: despues.cancelada, emitido: `${fmtFechaISO(pago.fecha)}${hora}`, cajero: USUARIA_DEMO.nombre }
 }
@@ -694,7 +882,8 @@ const LIMITE_BUSQUEDA = 200
 
 export async function buscarPagos(c: CriterioPagos) {
   const t = c.texto.trim().toLowerCase()
-  const encontrados = db.pagos
+  const reversados = new Map(db.reversos.map((r) => [r.pago.id, r]))
+  const encontrados = [...db.pagos, ...db.reversos.map((r) => r.pago)]
     .filter((p) => {
       if (c.por === 'operacion') return p.operacionId.toLowerCase().includes(t)
       if (c.por === 'referencia') return p.referencia.toLowerCase().includes(t) || p.id.toLowerCase().includes(t)
@@ -708,18 +897,22 @@ export async function buscarPagos(c: CriterioPagos) {
     .filter((p) => !c.medio || p.medio === c.medio)
     .filter((p) => !c.tipo || p.tipo === c.tipo)
     .sort((a, b) => b.fecha.localeCompare(a.fecha) || b.id.localeCompare(a.id))
-  const suma = (k: 'monto' | 'capital' | 'interes' | 'mora') => round2(encontrados.reduce((s, p) => s + p[k], 0))
+  const validos = encontrados.filter((p) => !reversados.has(p.id))
+  const suma = (k: 'monto' | 'capital' | 'interes' | 'mora') => round2(validos.reduce((s, p) => s + p[k], 0))
   return esperar({
     total: encontrados.length,
+    reversados: encontrados.length - validos.length,
     limite: LIMITE_BUSQUEDA,
     sumas: { monto: suma('monto'), capital: suma('capital'), interes: suma('interes'), mora: suma('mora') },
-    filas: encontrados.slice(0, LIMITE_BUSQUEDA).map((p) => ({ ...p, cliente: db.clientes.find((x) => x.id === p.clienteId)! })),
+    filas: encontrados.slice(0, LIMITE_BUSQUEDA).map((p) => ({ ...p, cliente: db.clientes.find((x) => x.id === p.clienteId)!, reverso: reversados.get(p.id) })),
   })
 }
 
 export function comprobanteDe(pagoId: string) {
   const p = db.pagos.find((x) => x.id === pagoId)
-  return p ? comprobante(p) : null
+  if (p) return { ...comprobante(p), reverso: undefined, bloqueoReverso: bloqueoReverso(p.id) }
+  const r = db.reversos.find((x) => x.pago.id === pagoId)
+  return r ? { ...comprobante(r.pago), reverso: r, bloqueoReverso: 'Este pago ya fue reversado.' } : null
 }
 
 // ── Juicios ─────────────────────────────────────────────────────────────────

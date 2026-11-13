@@ -1,9 +1,10 @@
-import { ArrowLeft, Banknote, FileCheck2, FileClock, Gavel, Home, Landmark, Printer, ShieldCheck, Truck, UserRound, Wallet } from 'lucide-react'
+import { ArrowLeft, Banknote, FileCheck2, FileClock, Gavel, Home, Landmark, Printer, ShieldCheck, Truck, Undo2, UserRound, Wallet } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { AbonoCapital, AvisoAccion, Precancelacion } from '../components/AccionesOperacion'
 import { BarraCobertura } from '../components/Cobertura'
 import { RegistroPago } from '../components/RegistroPago'
+import { ReversoPago } from '../components/ReversoPago'
 import {
   Boton, Dato, Dialogo, Encabezado, Entrada, EsqueletoPagina, Insignia, InsigniaTramo, Microimpresion, Panel, Pestanas, RecorridoCobranza, Segmentado, Tabla, Td, Th, Vacio, type Tono,
 } from '../components/ui'
@@ -13,7 +14,7 @@ import { diffDays, fmtFecha, fmtFechaLarga } from '../domain/fechas'
 import type { TipoGarantia } from '../domain/tipos'
 import { cx, dinero, plural, porcentaje } from '../lib/formato'
 import { useServicio } from '../lib/useServicio'
-import { fechaCorte, obtenerOperacion } from '../services/api'
+import { bloqueoReverso, fechaCorte, obtenerOperacion } from '../services/api'
 
 type Tab = 'resumen' | 'tabla' | 'devengo' | 'garantias' | 'pagos' | 'cuenta' | 'cobranza' | 'documentos'
 type Accion = 'pago' | 'abono' | 'precancelar' | null
@@ -89,7 +90,7 @@ export default function PaginaOperacion() {
       {tab === 'tabla' && <TablaAmortizacion d={d} />}
       {tab === 'devengo' && <TablaDevengada d={d} />}
       {tab === 'garantias' && <Garantias d={d} />}
-      {tab === 'pagos' && <Pagos d={d} />}
+      {tab === 'pagos' && <Pagos d={d} onAviso={setAviso} />}
       {tab === 'cuenta' && <EstadoCuenta d={d} />}
       {tab === 'cobranza' && <Cobranza d={d} />}
       {tab === 'documentos' && <Documentos d={d} />}
@@ -442,12 +443,14 @@ function Garantias({ d }: { d: Detalle }) {
 }
 
 // ── Pagos ───────────────────────────────────────────────────────────────────
-function Pagos({ d }: { d: Detalle }) {
+function Pagos({ d, onAviso }: { d: Detalle; onAviso: (m: string) => void }) {
+  const [reversar, setReversar] = useState<{ id: string; monto: number } | null>(null)
   return (
+    <>
     <Panel titulo="Pagos aplicados" detalle={`${plural(d.pagos.length, 'pago', 'pagos')} · capital ${dinero(d.capitalPagado)} · interés ${dinero(d.interesPagado)}`} cuerpo="">
       {d.pagos.length === 0 ? <Vacio titulo="Sin pagos todavía" /> : (
         <Tabla etiqueta="Pagos de la operación" className="max-h-[68vh]">
-          <thead><tr><Th>Fecha</Th><Th>Tipo</Th><Th>Medio</Th><Th>Referencia</Th><Th derecha>Mora</Th><Th derecha>Interés</Th><Th derecha>Capital</Th><Th derecha>Total</Th></tr></thead>
+          <thead><tr><Th>Fecha</Th><Th>Tipo</Th><Th>Medio</Th><Th>Referencia</Th><Th derecha>Mora</Th><Th derecha>Interés</Th><Th derecha>Capital</Th><Th derecha>Total</Th><Th><span className="sr-only">Acciones</span></Th></tr></thead>
           <tbody>
             {d.pagos.map((p) => (
               <tr key={p.id}>
@@ -459,12 +462,19 @@ function Pagos({ d }: { d: Detalle }) {
                 <Td derecha className="text-ink-2">{dinero(p.interes)}</Td>
                 <Td derecha className="text-ink-2">{dinero(p.capital)}</Td>
                 <Td derecha className="font-medium">{dinero(p.monto)}</Td>
+                <Td>{!bloqueoReverso(p.id) && <button onClick={() => setReversar({ id: p.id, monto: p.monto })} className="inline-flex items-center gap-1 text-[0.8rem] font-medium whitespace-nowrap text-rose-ink hover:underline"><Undo2 size={13} />Reversar</button>}</Td>
               </tr>
             ))}
           </tbody>
         </Tabla>
       )}
     </Panel>
+    {reversar && (
+      <Dialogo titulo="Reversar pago" descripcion={reversar.id} onCerrar={() => setReversar(null)} ancho="max-w-md">
+        <ReversoPago pagoId={reversar.id} monto={reversar.monto} onListo={(m) => { setReversar(null); onAviso(m) }} />
+      </Dialogo>
+    )}
+    </>
   )
 }
 

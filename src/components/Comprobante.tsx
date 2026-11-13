@@ -5,7 +5,7 @@ import type { comprobante } from '../services/api'
 import { Marca } from './guilloche'
 import { Boton, Microimpresion } from './ui'
 
-export type DatosComprobante = ReturnType<typeof comprobante>
+export type DatosComprobante = ReturnType<typeof comprobante> & { reverso?: { fecha: string; hora: string; motivo: string; usuario: string } }
 
 /** Comprobante de pago imprimible. */
 export function Comprobante({ c, acciones }: { c: DatosComprobante; acciones?: React.ReactNode }) {
@@ -22,7 +22,9 @@ export function Comprobante({ c, acciones }: { c: DatosComprobante; acciones?: R
               <p className="tabular mt-1 text-[0.78rem] text-ink-3">{p.id} · {c.emitido}</p>
             </div>
           </div>
-          <span className="rounded-full bg-ok-soft px-2.5 py-1 text-[0.72rem] font-semibold text-ok">Aplicado</span>
+          {c.reverso
+            ? <span className="rounded-full bg-bad-soft px-2.5 py-1 text-[0.72rem] font-semibold text-bad">Reversado</span>
+            : <span className="rounded-full bg-ok-soft px-2.5 py-1 text-[0.72rem] font-semibold text-ok">Aplicado</span>}
         </header>
         <Microimpresion className="border-y border-line px-5 py-[3px] text-ink-3/70" />
         <div className="grid gap-5 p-5 sm:grid-cols-2">
@@ -42,6 +44,7 @@ export function Comprobante({ c, acciones }: { c: DatosComprobante; acciones?: R
           <div><p className="text-ink-3">Saldo de capital después del pago</p><p className="tabular mt-0.5 font-semibold">{dinero(c.saldoDespues)}</p></div>
           <div><p className="text-ink-3">{c.cancelada ? 'Estado' : 'Próximo vencimiento'}</p><p className="tabular mt-0.5 font-semibold">{c.cancelada ? 'Operación cancelada' : c.proximaCuota ? `${fmtFecha(c.proximaCuota.fecha)} · ${dinero(c.proximaCuota.valor)}` : '—'}</p></div>
           <p className="col-span-2 text-[0.72rem] text-ink-3">Recibido por {c.cajero}. Cooperativa Nueve Volcanes.</p>
+          {c.reverso && <p className="col-span-2 rounded-[8px] bg-bad-soft px-3 py-2 text-[0.78rem] text-bad">Reversado el {c.reverso.fecha.split('-').reverse().join('/')} a las {c.reverso.hora} por {c.reverso.usuario}: {c.reverso.motivo}</p>}
         </footer>
       </article>
       <div className="mt-4 flex flex-wrap justify-end gap-2 print:hidden">

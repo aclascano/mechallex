@@ -113,6 +113,45 @@ export interface Recalculo {
   cuotaDespues: number
   plazoAntes: number
   plazoDespues: number
+  /** Tabla previa al abono, para poder reversarlo. */
+  tablaAnterior?: Cuota[]
+}
+
+export interface Reverso {
+  pago: Pago
+  fecha: ISODate
+  hora: string
+  motivo: string
+  usuario: string
+  asientoId: string
+}
+
+export interface Arqueo {
+  denominaciones: Record<string, number>
+  contado: number
+  esperado: number
+  diferencia: number
+  hora: string
+  observacion: string
+}
+
+export interface Caja {
+  fecha: ISODate
+  cajero: string
+  estado: 'Cerrada' | 'Abierta' | 'Cuadrada'
+  fondoInicial: number
+  apertura?: string
+  cierre?: Arqueo
+}
+
+export interface LoteRecaudo {
+  id: string
+  fecha: ISODate
+  hora: string
+  archivo: string
+  aplicados: number
+  monto: number
+  rechazados: number
 }
 
 export interface Garante {
@@ -272,7 +311,7 @@ export interface Asiento {
   id: string
   fecha: ISODate
   glosa: string
-  origen: 'Desembolso' | 'Pago' | 'Costas judiciales' | 'Ajuste'
+  origen: 'Desembolso' | 'Pago' | 'Costas judiciales' | 'Ajuste' | 'Reverso'
   referencia: string
   lineas: LineaAsiento[]
 }

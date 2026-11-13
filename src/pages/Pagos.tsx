@@ -2,13 +2,16 @@ import { Receipt, Search } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { Comprobante } from '../components/Comprobante'
+import { CajaDia } from '../components/CajaDia'
+import { RecaudoMasivo } from '../components/RecaudoMasivo'
 import { RegistroPago } from '../components/RegistroPago'
-import { Boton, Campo, Dialogo, Encabezado, Entrada, Insignia, Panel, Pestanas, Segmentado, Selector, Tabla, Td, Th, Vacio } from '../components/ui'
+import { ReversoPago } from '../components/ReversoPago'
+import { Aviso, Boton, Campo, Dialogo, Encabezado, Entrada, Insignia, Panel, Pestanas, Segmentado, Selector, Tabla, Td, Th, Vacio } from '../components/ui'
 import { addDays, fmtFecha, startOfMonth } from '../domain/fechas'
 import { dinero, entero } from '../lib/formato'
 import { buscarPagos, comprobanteDe, fechaCorte, mediosPago, type CriterioPagos } from '../services/api'
 
-type Tab = 'registrar' | 'consultar'
+type Tab = 'registrar' | 'consultar' | 'caja' | 'recaudo'
 type Resultado = Awaited<ReturnType<typeof buscarPagos>>
 
 const HOY = fechaCorte()
@@ -26,8 +29,11 @@ export default function PaginaPagos() {
   return (
     <div>
       <Encabezado titulo="Pagos y abonos" descripcion="Registra un pago revisando antes cómo se aplica (presimulación), o busca pagos ya recibidos para ver su comprobante." />
-      <Pestanas<Tab> valor={tab} onCambio={(t) => setParams(t === 'registrar' ? {} : { tab: t }, { replace: true })} opciones={[{ id: 'registrar', label: 'Registrar pago' }, { id: 'consultar', label: 'Consultar pagos' }]} />
-      {tab === 'registrar' ? <Panel cuerpo="p-5 sm:p-6"><RegistroPago /></Panel> : <Consulta />}
+      <Pestanas<Tab> valor={tab} onCambio={(t) => setParams(t === 'registrar' ? {} : { tab: t }, { replace: true })} opciones={[{ id: 'registrar', label: 'Registrar pago' }, { id: 'consultar', label: 'Consultar pagos' }, { id: 'caja', label: 'Caja del día' }, { id: 'recaudo', label: 'Recaudo masivo' }]} />
+      {tab === 'registrar' && <Panel cuerpo="p-5 sm:p-6"><RegistroPago /></Panel>}
+      {tab === 'consultar' && <Consulta />}
+      {tab === 'caja' && <CajaDia />}
+      {tab === 'recaudo' && <RecaudoMasivo />}
     </div>
   )
 }
@@ -38,6 +44,7 @@ function Consulta() {
   const [buscando, setBuscando] = useState(false)
   const [error, setError] = useState('')
   const [verId, setVerId] = useState<string | null>(null)
+  const [aviso, setAviso] = useState('')
   const set = <K extends keyof CriterioPagos>(k: K, v: CriterioPagos[K]) => setC((x) => ({ ...x, [k]: v }))
 
   async function buscar(criterio = c, e?: FormEvent) {
@@ -93,6 +100,7 @@ function Consulta() {
         </form>
       </Panel>
 
+      {aviso && <Aviso>{aviso}</Aviso>}
       {!res ? (
         <Panel>
           <Vacio titulo="Busca para ver pagos">Elige cómo buscar: por cliente, operación, comprobante o rango de fechas. No se listan todos los pagos de la cartera a la vez.</Vacio>
@@ -105,21 +113,22 @@ function Consulta() {
             <div><dt className="text-[0.75rem] text-ink-3">A interés</dt><dd className="mt-1 font-medium">{dinero(res.sumas.interes)}</dd></div>
             <div><dt className="text-[0.75rem] text-ink-3">Recargo por mora</dt><dd className="mt-1 font-medium">{dinero(res.sumas.mora)}</dd></div>
           </dl>
+          {res.reversados > 0 && <p className="border-b border-line px-5 py-2 text-[0.8rem] text-ink-3">{res.reversados === 1 ? 'Incluye 1 pago reversado' : `Incluye ${res.reversados} pagos reversados`}, que no suman en los totales.</p>}
           {res.total > res.limite && <p className="border-b border-line bg-warn-soft/50 px-5 py-2 text-[0.8rem] text-warn">Se muestran los {res.limite} más recientes de {entero(res.total)}. Acota la búsqueda para ver el resto; los totales sí incluyen todos.</p>}
           {res.filas.length === 0 ? <Vacio titulo="Sin resultados">No hay pagos con esos criterios. Prueba ampliar el rango de fechas.</Vacio> : (
             <Tabla etiqueta="Pagos encontrados" className="max-h-[60vh]">
               <thead><tr><Th>Fecha</Th><Th>Cliente</Th><Th>Tipo</Th><Th>Medio</Th><Th derecha>Capital</Th><Th derecha>Interés</Th><Th derecha>Mora</Th><Th derecha>Total</Th><Th><span className="sr-only">Comprobante</span></Th></tr></thead>
               <tbody>
                 {res.filas.map((p) => (
-                  <tr key={p.id} className="hover:bg-panel-2/60">
+                  <tr key={p.id} className={p.reverso ? 'text-ink-3' : 'hover:bg-panel-2/60'}>
                     <Td className="whitespace-nowrap">{fmtFecha(p.fecha)}<span className="block text-[0.72rem] text-ink-3">{p.id}</span></Td>
                     <Td><Link to={`/clientes/${p.clienteId}`} className="hover:text-rose-ink">{p.cliente.nombre}</Link><Link to={`/operaciones/${p.operacionId}`} className="block text-[0.72rem] whitespace-nowrap text-ink-3 hover:text-rose-ink">{p.operacionId}</Link></Td>
-                    <Td className="whitespace-nowrap">{p.tipo === 'Cuota' ? <span className="text-ink-2">Cuota</span> : <Insignia tono={p.tipo === 'Abono parcial' ? 'rosa' : 'neutro'}>{p.tipo}</Insignia>}{p.registradoEnDemo && <Insignia tono="ok" className="ml-1">Nuevo</Insignia>}</Td>
+                    <Td className="whitespace-nowrap">{p.tipo === 'Cuota' ? <span className="text-ink-2">Cuota</span> : <Insignia tono={p.tipo === 'Abono parcial' ? 'rosa' : 'neutro'}>{p.tipo}</Insignia>}{p.reverso ? <Insignia tono="bad" className="ml-1">Reversado</Insignia> : p.registradoEnDemo && <Insignia tono="ok" className="ml-1">Nuevo</Insignia>}</Td>
                     <Td className="whitespace-nowrap text-ink-2">{p.medio}<span className="block text-[0.72rem] text-ink-3">{p.referencia}</span></Td>
                     <Td derecha className="text-ink-2">{dinero(p.capital)}</Td>
                     <Td derecha className="text-ink-2">{dinero(p.interes)}</Td>
                     <Td derecha className={p.mora ? 'text-ink-2' : 'text-ink-3'}>{dinero(p.mora)}</Td>
-                    <Td derecha className="font-medium">{dinero(p.monto)}</Td>
+                    <Td derecha className={p.reverso ? 'line-through' : 'font-medium'}>{dinero(p.monto)}</Td>
                     <Td><button onClick={() => setVerId(p.id)} className="inline-flex items-center gap-1.5 text-[0.8rem] font-medium whitespace-nowrap text-rose-ink hover:underline"><Receipt size={14} />Comprobante</button></Td>
                   </tr>
                 ))}
@@ -132,6 +141,7 @@ function Consulta() {
       {comp && (
         <Dialogo titulo="Comprobante" descripcion={comp.pago.id} onCerrar={() => setVerId(null)} ancho="max-w-xl">
           <Comprobante c={comp} />
+          {!comp.reverso && <div className="mt-4 print:hidden"><ReversoPago pagoId={comp.pago.id} monto={comp.pago.monto} onListo={(m) => { setVerId(null); setAviso(m); buscar() }} /></div>}
         </Dialogo>
       )}
     </div>

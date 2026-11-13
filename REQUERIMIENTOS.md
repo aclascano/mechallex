@@ -73,11 +73,13 @@ La pantalla actual era solo un simulador. Pasa a ser la **creación de la obliga
 
 - 🟡 El **simulador** sigue existiendo como acción rápida ("Simular"), sin crear nada.
 
-## 4. Pagos y Caja (🟡 en curso)
+## 4. Pagos y Caja ✅
 
 - ✅ Registrar pago con **presimulación** (detalle por cuota) y comprobante imprimible.
 - ✅ Consulta por tipo de búsqueda (cliente, operación, comprobante, fecha); ya no se listan todos los pagos.
-- 🟡 Pendiente: reverso de pago, caja diaria y recaudo masivo.
+- ✅ Reverso de pago con motivo y asiento inverso (solo del día y el último de la operación).
+- ✅ Caja del día: recaudado por medio, efectivo esperado, arqueo por denominación y cierre.
+- ✅ Recaudo masivo: archivo CSV, validación por línea y aplicación del lote.
 - ✅ Clientes: indicadores de la base en el listado y comportamiento de pago en la ficha.
 
 

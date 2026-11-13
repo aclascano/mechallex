@@ -5,7 +5,7 @@ import { tramoDe } from '../domain/cartera'
 import { fmtFecha } from '../domain/fechas'
 import type { MedioPago } from '../domain/tipos'
 import { cx, dinero, plural } from '../lib/formato'
-import { buscarOperacionesParaPago, mediosPago, presimularPago, registrarPago, resumenParaPago } from '../services/api'
+import { bloqueoCobro, buscarOperacionesParaPago, mediosPago, presimularPago, registrarPago, resumenParaPago } from '../services/api'
 import { Comprobante, type DatosComprobante } from './Comprobante'
 import { Boton, Campo, Entrada, Insignia, InsigniaTramo, Segmentado, Selector, Tabla, Td, Th } from './ui'
 
@@ -25,6 +25,8 @@ export function RegistroPago({ operacionFija, compacto }: { operacionFija?: stri
   const [referencia, setReferencia] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [hecho, setHecho] = useState<DatosComprobante | null>(null)
+  const [error, setError] = useState('')
+  const cobro = bloqueoCobro(medio)
 
   const resultados = useMemo(() => (opId ? [] : buscarOperacionesParaPago(busqueda)), [busqueda, opId])
   const r = opId ? resumenParaPago(opId) : null
@@ -47,9 +49,13 @@ export function RegistroPago({ operacionFija, compacto }: { operacionFija?: stri
   async function confirmar() {
     if (!r || !valido) return
     setEnviando(true)
-    const c = await registrarPago({ operacionId: r.operacion.id, monto, medio, referencia })
+    setError('')
+    try {
+      setHecho(await registrarPago({ operacionId: r.operacion.id, monto, medio, referencia }))
+    } catch (e) {
+      setError((e as Error).message)
+    }
     setEnviando(false)
-    setHecho(c)
   }
 
   if (hecho) {
@@ -145,7 +151,7 @@ export function RegistroPago({ operacionFija, compacto }: { operacionFija?: stri
           <section>
             <h3 className="mb-3 flex items-center gap-2 text-[0.875rem] font-semibold"><Num n={3} />Medio de pago</h3>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Campo etiqueta="Medio">
+              <Campo etiqueta="Medio" error={cobro ?? undefined}>
                 <Selector value={medio} onChange={(e) => setMedio(e.target.value as MedioPago)}>{mediosPago.map((m) => <option key={m}>{m}</option>)}</Selector>
               </Campo>
               <Campo etiqueta="Referencia o n.º de papeleta" opcional ayuda="Si la dejas vacía se genera una.">
@@ -191,10 +197,11 @@ export function RegistroPago({ operacionFija, compacto }: { operacionFija?: stri
             <p className="flex flex-wrap items-center gap-2"><span className="w-24 text-ink-3">Saldo</span><span className="tabular">{dinero(sim.antes.saldoCapital)}</span><ArrowRight size={14} className="text-ink-3" aria-label="pasa a" /><span className="tabular font-semibold">{dinero(sim.despues.saldoCapital)}</span></p>
             <p className="flex flex-wrap items-center gap-2"><span className="w-24 text-ink-3">Antigüedad</span><InsigniaTramo tramo={tramoDe(sim.antes.diasMora)} /><ArrowRight size={14} className="text-ink-3" aria-label="pasa a" /><InsigniaTramo tramo={tramoDe(sim.despues.diasMora)} /></p>
           </div>
+          {error && <p role="alert" className="text-[0.8rem] font-medium text-bad">{error}</p>}
           {sim.excedente > 0.004 && <p role="alert" className="text-[0.8rem] font-medium text-warn">El monto supera la deuda; solo se aplicarán {dinero(sim.aplicado)}. Para cancelar todo usa la precancelación en la operación.</p>}
           <div className="flex items-center justify-between gap-3 border-t border-line pt-4">
             <div><p className="text-[0.75rem] text-ink-3">Total a recibir</p><p className="display tabular text-[1.7rem] leading-none">{dinero(sim.aplicado)}</p></div>
-            <Boton variante="primario" onClick={confirmar} disabled={enviando}>{enviando ? 'Registrando…' : 'Confirmar pago'}</Boton>
+            <Boton variante="primario" onClick={confirmar} disabled={enviando || !!cobro}>{enviando ? 'Registrando…' : 'Confirmar pago'}</Boton>
           </div>
         </div>
       )}
