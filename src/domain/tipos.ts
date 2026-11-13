@@ -34,6 +34,24 @@ export interface Conyuge {
   ingresos: number
 }
 
+export type Contrato = 'Indefinido' | 'Plazo fijo' | 'Servicios profesionales' | ''
+export type Vivienda = 'Propia' | 'Arrendada' | 'Familiar' | ''
+
+/** Información socioeconómica: base de la capacidad de pago y del scoring. */
+export interface Socioeconomico {
+  ingresos: { sueldo: number; negocio: number; otros: number }
+  egresos: { vivienda: number; alimentacion: number; educacion: number; deudas: number; otros: number }
+  activos: { inmuebles: number; vehiculos: number; ahorros: number; otros: number }
+  /** Deudas con otras entidades. */
+  pasivosExternos: number
+  empleo: { cargo: string; antiguedadAnios: number; contrato: Contrato }
+  negocio: { tieneRuc: boolean; ruc: string; sector: string; antiguedadAnios: number }
+  vivienda: Vivienda
+  cargas: number
+  /** Fecha en que se verificaron por última vez. */
+  actualizado: ISODate
+}
+
 /** Datos que se capturan al crear o editar un cliente. */
 export interface DatosCliente {
   tipoPersona: TipoPersona
@@ -60,6 +78,7 @@ export interface DatosCliente {
   ingresos: number
   egresos: number
   patrimonio: number
+  socio: Socioeconomico
   referencias: ReferenciaCliente[]
   conyuge: Conyuge | null
   consentimiento: Record<Canal, boolean>
@@ -101,7 +120,7 @@ export interface Operacion {
   primerVencimiento?: ISODate
   graciaMeses?: number
   /** Datos de originación cuando la operación se creó en la demo. */
-  originacion?: { comision: number; seguro: number; neto: number; medio: string; cuentaDestino: string; aprobadaPor: string; observacion: string }
+  originacion?: { comision: number; seguro: number; neto: number; medio: string; cuentaDestino: string; aprobadaPor: string; observacion: string; score?: number; pd?: number }
 }
 
 export interface Recalculo {

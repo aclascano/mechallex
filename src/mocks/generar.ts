@@ -5,7 +5,7 @@ import type {
   Asiento, Cliente, Costa, EtapaJuicio, EventoJuicio, Juicio, MedioPago, MovimientoBanco, Operacion, Pago, Producto, Promesa,
 } from '../domain/tipos'
 import { ABOGADOS, APELLIDOS, CIUDADES, crearRng, GESTORES, HOY, MEDIOS, NEGOCIOS, NOMBRES, PRODUCTOS } from './catalogos'
-import { ajustarAltas, enriquecerCliente, generarHistorial } from './fichas'
+import { ajustarAltas, ajustarIngresos, enriquecerCliente, generarHistorial } from './fichas'
 import { generarGarantias } from './garantias'
 
 const rng = crearRng(20261113)
@@ -332,6 +332,7 @@ export function generarBaseDemo() {
   const banco = generarBanco(operaciones, pagos, juicios)
   const asientos = generarAsientos(operaciones, pagos, juicios)
   ajustarAltas(clientes, operaciones)
+  ajustarIngresos(clientes, operaciones)
   const historial = generarHistorial(clientes)
   const canceladas = new Set(operaciones.filter((o) => estadoOperacion(o, pagos.filter((p) => p.operacionId === o.id), HOY).cancelada).map((o) => o.id))
   const garantias = generarGarantias(operaciones, clientes, canceladas)

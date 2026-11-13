@@ -3,7 +3,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { Aviso, Boton, Dato, Encabezado, EsqueletoPagina, Insignia, InsigniaTramo, Panel, Pestanas, RecorridoCobranza, Tabla, Td, Th, Vacio } from '../components/ui'
 import { ComportamientoPago } from '../components/ComportamientoPago'
-import { CANALES, capacidadPago } from '../domain/clientes'
+import { MedidorRiesgo } from '../components/MedidorRiesgo'
+import { CANALES, capacidadPago, mesesDesdeActualizacion, VIGENCIA_SOCIO_MESES } from '../domain/clientes'
 import { diffDays, fmtFecha } from '../domain/fechas'
 import type { CambioCliente, Cliente } from '../domain/tipos'
 import { ICONO_CANAL } from '../lib/canales'
@@ -99,6 +100,7 @@ export default function PaginaCliente() {
 
       {tab === 'resumen' && (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
+          <div className="xl:col-span-2"><MedidorRiesgo r={d.riesgo} titulo="Score de riesgo" compacto /></div>
           <div className="xl:col-span-2"><ComportamientoPago d={d.comportamiento} /></div>
           <Contacto c={c} />
           <div className="min-w-0 space-y-4">
@@ -211,6 +213,45 @@ function Seccion({ titulo, filas, children }: { titulo: string; filas: [string, 
   )
 }
 
+function SocioEconomico({ c }: { c: Cliente }) {
+  const so = c.socio
+  const meses = mesesDesdeActualizacion(so, fechaCorte())
+  const vencidos = meses >= VIGENCIA_SOCIO_MESES
+  const linea = (k: string, v: number) => (v ? <div key={k} className="flex justify-between gap-3 py-1"><dt className="text-ink-2">{k}</dt><dd className="tabular">{dinero(v)}</dd></div> : null)
+  const total = (k: string, v: number) => <div className="mt-1 flex justify-between gap-3 border-t border-line pt-2 font-semibold"><dt>{k}</dt><dd className="tabular">{dinero(v)}</dd></div>
+  return (
+    <Panel titulo="Situación socioeconómica" detalle={<span className={vencidos ? 'text-warn' : undefined}>Verificada el {fmtFecha(so.actualizado)}{vencidos ? ` · hace ${meses} meses, conviene actualizar` : ''}</span>} className="lg:col-span-2 2xl:col-span-3">
+      <div className="grid gap-6 text-[0.85rem] sm:grid-cols-2 xl:grid-cols-4">
+        <div>
+          <p className="mb-2 text-[0.75rem] font-medium tracking-wide text-ink-3 uppercase">Trabajo</p>
+          <dl className="space-y-1.5">
+            <div><dt className="text-[0.75rem] text-ink-3">Situación</dt><dd>{c.situacionLaboral} · {c.actividad}</dd></div>
+            {c.empleador && <div><dt className="text-[0.75rem] text-ink-3">Empresa</dt><dd>{c.empleador}{so.empleo.cargo && ` · ${so.empleo.cargo}`}</dd></div>}
+            {c.situacionLaboral === 'Dependiente' && <div><dt className="text-[0.75rem] text-ink-3">Antigüedad y contrato</dt><dd>{so.empleo.antiguedadAnios} años · {so.empleo.contrato || 'sin dato'}</dd></div>}
+            {so.negocio.sector && <div><dt className="text-[0.75rem] text-ink-3">Negocio</dt><dd>{so.negocio.sector} · {so.negocio.antiguedadAnios} años · {so.negocio.tieneRuc ? `RUC ${so.negocio.ruc}` : 'sin RUC'}</dd></div>}
+            {so.vivienda && <div><dt className="text-[0.75rem] text-ink-3">Hogar</dt><dd>Vivienda {so.vivienda.toLowerCase()} · {so.cargas} {so.cargas === 1 ? 'carga' : 'cargas'}</dd></div>}
+          </dl>
+        </div>
+        <div>
+          <p className="mb-2 text-[0.75rem] font-medium tracking-wide text-ink-3 uppercase">Ingresos</p>
+          <dl>{linea('Sueldo', so.ingresos.sueldo)}{linea('Negocio', so.ingresos.negocio)}{linea('Otros', so.ingresos.otros)}{total('Total', c.ingresos)}</dl>
+        </div>
+        <div>
+          <p className="mb-2 text-[0.75rem] font-medium tracking-wide text-ink-3 uppercase">Egresos</p>
+          <dl>{linea('Vivienda', so.egresos.vivienda)}{linea('Alimentación', so.egresos.alimentacion)}{linea('Educación y salud', so.egresos.educacion)}{linea('Otras deudas', so.egresos.deudas)}{linea('Otros', so.egresos.otros)}{total('Total', c.egresos)}</dl>
+          <p className="mt-2 flex justify-between text-rose-ink"><span>Capacidad de pago</span><span className="tabular font-semibold">{dinero(capacidadPago(c))}</span></p>
+        </div>
+        <div>
+          <p className="mb-2 text-[0.75rem] font-medium tracking-wide text-ink-3 uppercase">Patrimonio</p>
+          <dl>{linea('Inmuebles', so.activos.inmuebles)}{linea('Vehículos', so.activos.vehiculos)}{linea('Ahorros', so.activos.ahorros)}{linea('Otros bienes', so.activos.otros)}
+            {so.pasivosExternos > 0 && <div className="flex justify-between gap-3 py-1"><dt className="text-ink-2">Deudas externas</dt><dd className="tabular">−{dinero(so.pasivosExternos)}</dd></div>}
+            {total('Patrimonio neto', c.patrimonio)}</dl>
+        </div>
+      </div>
+    </Panel>
+  )
+}
+
 function Datos({ c }: { c: Cliente }) {
   const natural = c.tipoPersona === 'Natural'
   const edad = c.fechaNacimiento ? Math.floor(diffDays(fechaCorte(), c.fechaNacimiento) / 365.25) : 0
@@ -237,15 +278,7 @@ function Datos({ c }: { c: Cliente }) {
         ['Referencia del domicilio', c.domicilio.referencia],
         [natural ? 'Trabajo' : 'Local u oficina', dir(c.trabajo)],
       ]} />
-      <Seccion titulo="Actividad económica" filas={[
-        ['Situación', c.situacionLaboral],
-        ['Actividad', c.actividad],
-        ['Empleador', c.empleador],
-        ['Ingresos mensuales', dinero(c.ingresos)],
-        ['Egresos mensuales', dinero(c.egresos)],
-        ['Capacidad de pago', dinero(capacidadPago(c))],
-        ['Patrimonio', c.patrimonio ? dinero(c.patrimonio) : ''],
-      ]} />
+      <SocioEconomico c={c} />
       <Panel titulo="Referencias" cuerpo="">
         <ul className="divide-y divide-line">
           {c.referencias.map((r, i) => (

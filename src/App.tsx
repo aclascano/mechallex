@@ -17,6 +17,7 @@ const PaginaCobranza = lazy(() => import('./pages/Cobranza'))
 const PaginaJuicios = lazy(() => import('./pages/Juicios'))
 const PaginaContabilidad = lazy(() => import('./pages/Contabilidad'))
 const PaginaReportes = lazy(() => import('./pages/Reportes'))
+const PaginaRiesgo = lazy(() => import('./pages/Riesgo'))
 
 const conCarga = (el: React.ReactNode) => <Suspense fallback={<EsqueletoPagina />}>{el}</Suspense>
 
@@ -39,6 +40,7 @@ export function App() {
           <Route path="cobranza" element={conCarga(<PaginaCobranza />)} />
           <Route path="juicios" element={conCarga(<PaginaJuicios />)} />
           <Route path="contabilidad" element={conCarga(<PaginaContabilidad />)} />
+          <Route path="riesgo" element={conCarga(<PaginaRiesgo />)} />
           <Route path="reportes" element={conCarga(<PaginaReportes />)} />
           <Route path="*" element={<Vacio titulo="Página no encontrada">Usa el menú lateral para volver a un módulo.</Vacio>} />
         </Route>

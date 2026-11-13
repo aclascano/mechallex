@@ -5,14 +5,16 @@
 import { recalcular, round2, type ModoRecalculo } from '../domain/amortizacion'
 import { distribuirPago, estadoOperacion, TASA_MORA_DIARIA, tramoDe, TRAMOS } from '../domain/cartera'
 import { addDays, addMonths, diffDays, endOfMonth, fmtMes, monthKey, startOfMonth, type ISODate } from '../domain/fechas'
-import { diferencias, normalizar } from '../domain/clientes'
+import { diferencias, mesesDesdeActualizacion, normalizar, VIGENCIA_SOCIO_MESES } from '../domain/clientes'
+import { CATEGORIAS, categoriaDe, ESTADOS, estimarMatriz, estresar, LGD, provisionDe, proyectar, type EstadoRodamiento } from '../domain/provisiones'
+import { evaluarRiesgo, type Banda, type EntradaRiesgo, type HistorialPago, type ResultadoRiesgo } from '../domain/riesgo'
 import { COBERTURA_MINIMA, detallePago, saldosOperacion, tablaDevengo, valorCuotas } from '../domain/operacion'
 import { costos, primerVencimiento, tablaObligacion, validarPaso, PASOS_OBLIGACION, type DatosObligacion, type ProductoCredito } from '../domain/obligacion'
 import type { CambioCliente, Cliente, DatosCliente, EstadoOperacion, GarantiasOperacion, LoteRecaudo, MedioPago, Operacion, Pago, Promesa, Tramo } from '../domain/tipos'
 import { dinero } from '../lib/formato'
 import { CIUDADES, CONDICIONES_PRODUCTO, GESTORES, HOY, MEDIOS, PRODUCTOS, USUARIA_DEMO } from '../mocks/catalogos'
 import { ACTIVIDADES, PROVINCIA_DE, RELACIONES } from '../mocks/fichas'
-import { db, notificar } from '../mocks/db'
+import { db, notificar, version } from '../mocks/db'
 import { asientoDePago } from '../mocks/generar'
 
 const LATENCIA = 140
@@ -26,7 +28,20 @@ export interface OperacionVista extends Operacion, EstadoOperacion {
   tieneJuicio: boolean
 }
 
-const pagosDe = (opId: string) => db.pagos.filter((p) => p.operacionId === opId)
+// Índice de pagos por operación; se rehace cuando cambia la base o la cantidad de pagos.
+let indicePagos: { clave: string; mapa: Map<string, Pago[]> } | null = null
+function pagosDe(opId: string): Pago[] {
+  const clave = `${version}:${db.pagos.length}:${db.pagos.at(-1)?.id ?? ''}`
+  if (!indicePagos || indicePagos.clave !== clave) {
+    const mapa = new Map<string, Pago[]>()
+    db.pagos.forEach((p) => { const l = mapa.get(p.operacionId); if (l) l.push(p); else mapa.set(p.operacionId, [p]) })
+    indicePagos = { clave, mapa }
+  }
+  return [...(indicePagos.mapa.get(opId) ?? [])]
+}
+
+/** Operaciones vigentes de un cliente (sin recorrer toda la cartera). */
+const operacionesDe = (clienteId: string) => db.operaciones.filter((o) => o.clienteId === clienteId && o.fechaDesembolso <= HOY).map((o) => vistaOperacion(o))
 
 function vistaOperacion(op: Operacion, corte: ISODate = HOY): OperacionVista {
   const est = estadoOperacion(op, pagosDe(op.id), corte)
@@ -151,7 +166,7 @@ export async function obtenerCliente(id: string) {
   const promesas = db.promesas.filter((p) => p.clienteId === id).map((p) => ({ ...p, estado: estadoPromesa(p) }))
   const juicios = db.juicios.filter((j) => j.clienteId === id)
   const historial = db.historial.filter((h) => h.clienteId === id).sort((a, b) => b.fecha.localeCompare(a.fecha) || Number(b.id.slice(3)) - Number(a.id.slice(3)))
-  return esperar({ cliente, operaciones, pagos, promesas, juicios, historial, garantiasPrestadas: garantiasPrestadas(id), comportamiento: comportamientoCliente(id) })
+  return esperar({ cliente, operaciones, pagos, promesas, juicios, historial, garantiasPrestadas: garantiasPrestadas(id), comportamiento: comportamientoCliente(id), riesgo: riesgoCliente(id) })
 }
 
 // ── Estadísticas de clientes ───────────────────────────────────────────────
@@ -176,7 +191,7 @@ export function comportamientoCliente(clienteId: string) {
   const puntualidad = cuotas.length ? aTiempo / cuotas.length : 1
   const atrasoPromedio = pagadas.length ? pagadas.reduce((s, c) => s + c.dias, 0) / pagadas.length : 0
   const atrasoMax = cuotas.reduce((m, c) => Math.max(m, c.dias), 0)
-  const moraActual = todasLasOperaciones().filter((o) => o.clienteId === clienteId && !o.cancelada).reduce((m, o) => Math.max(m, o.diasMora), 0)
+  const moraActual = operacionesDe(clienteId).filter((o) => !o.cancelada).reduce((m, o) => Math.max(m, o.diasMora), 0)
   const pagos = db.pagos.filter((p) => p.clienteId === clienteId)
   const porMedio = new Map<string, number>()
   pagos.forEach((p) => porMedio.set(p.medio, (porMedio.get(p.medio) ?? 0) + 1))
@@ -279,7 +294,7 @@ export async function crearCliente(datos: DatosCliente) {
   const d = normalizar(datos)
   if (identificacionUsada(d.cedula)) throw new Error('Ya existe un cliente con esta identificación.')
   const id = `CL-${Math.max(...db.clientes.map((c) => Number(c.id.slice(3)))) + 1}`
-  const cliente: Cliente = { ...d, id, clienteDesde: HOY, estado: 'Activo' }
+  const cliente: Cliente = { ...d, socio: { ...d.socio, actualizado: HOY }, id, clienteDesde: HOY, estado: 'Activo' }
   db.clientes.push(cliente)
   registrarCambio({ clienteId: id, accion: 'Creación', cambios: [], nota: 'Alta del cliente desde la ficha.' })
   notificar()
@@ -293,7 +308,7 @@ export async function actualizarCliente(id: string, datos: DatosCliente) {
   const d = normalizar(datos)
   if (identificacionUsada(d.cedula, id)) throw new Error('Ya existe un cliente con esta identificación.')
   const cambios = diferencias(antes, d)
-  db.clientes[i] = { ...antes, ...d }
+  db.clientes[i] = { ...antes, ...d, socio: { ...d.socio, actualizado: HOY } }
   if (cambios.length) registrarCambio({ clienteId: id, accion: 'Edición', cambios })
   notificar()
   return esperar({ cliente: db.clientes[i], cambios: cambios.length })
@@ -417,6 +432,153 @@ function fechasDePago(op: Operacion): (ISODate | null)[] {
 export const mediosPago = MEDIOS
 export const usuariaActual = USUARIA_DEMO
 
+// ── Riesgo: scoring y provisiones ───────────────────────────────────────────
+const edadDe = (c: Cliente) => (c.fechaNacimiento ? Math.floor(diffDays(HOY, c.fechaNacimiento) / 365.25) : null)
+
+function historialDe(clienteId: string): HistorialPago {
+  const b = comportamientoCliente(clienteId)
+  const c = db.clientes.find((x) => x.id === clienteId)!
+  return { cuotasVencidas: b.cuotasVencidas, puntualidad: b.puntualidad, atrasoPromedio: b.atrasoPromedio, moraActual: b.moraActual, aniosCliente: diffDays(HOY, c.clienteDesde) / 365.25 }
+}
+
+function garantiaDeOps(opIds: string[], saldo: number): { garantia: EntradaRiesgo['garantia']; cobertura: number } {
+  const gs = db.garantias.filter((g) => opIds.includes(g.operacionId))
+  const real = gs.flatMap((g) => g.reales).filter((r) => r.estado !== 'Liberada').reduce((s, r) => s + r.valorAvaluo, 0)
+  if (real > 0) return { garantia: 'real', cobertura: saldo > 0 ? real / saldo : 1 }
+  return { garantia: gs.some((g) => g.garantes.length) ? 'garante' : 'ninguna', cobertura: 0 }
+}
+
+/** Score del cliente con su deuda actual (modelo de comportamiento si tiene historial). */
+export function riesgoCliente(clienteId: string) {
+  const cliente = db.clientes.find((c) => c.id === clienteId)!
+  const ops = operacionesDe(clienteId).filter((o) => !o.cancelada)
+  const saldo = ops.reduce((s, o) => s + o.saldoCapital, 0)
+  const g = garantiaDeOps(ops.map((o) => o.id), saldo)
+  return evaluarRiesgo({
+    cliente, edad: edadDe(cliente), cuotaNueva: 0, monto: Math.max(saldo, 1), cuotasVigentes: ops.reduce((s, o) => s + (o.proximaCuota?.valor ?? 0), 0),
+    garantia: g.garantia, coberturaReal: g.cobertura, historial: historialDe(clienteId),
+  })
+}
+
+/** Score de una solicitud: el cliente con el crédito propuesto. */
+export function riesgoPropuesta(d: DatosObligacion, cuotaMax: number) {
+  const deudor = datosDeudor(d.clienteId)
+  if (!deudor) return null
+  const real = d.reales.reduce((s, r) => s + (r.valorAvaluo || 0), 0)
+  return evaluarRiesgo({
+    cliente: deudor.cliente, edad: edadDe(deudor.cliente), cuotaNueva: cuotaMax, monto: d.monto, cuotasVigentes: deudor.exposicion.cuotasVigentes,
+    garantia: real > 0 ? 'real' : d.garantes.length ? 'garante' : 'ninguna', coberturaReal: d.monto ? real / d.monto : 0,
+    historial: historialDe(d.clienteId),
+  })
+}
+
+function lgdDe(opId: string) {
+  const g = db.garantias.find((x) => x.operacionId === opId)
+  const tipos = g?.reales.filter((r) => r.estado !== 'Liberada').map((r) => r.tipo) ?? []
+  if (tipos.includes('Hipoteca')) return LGD.hipoteca
+  if (tipos.includes('Prenda comercial') || tipos.includes('Prenda vehicular')) return LGD.prenda
+  if (tipos.includes('Ahorro encajado')) return LGD.encaje
+  return g?.garantes.length ? LGD.garante : LGD.ninguna
+}
+
+function provisionRequerida(corte: ISODate) {
+  return round2(todasLasOperaciones(corte).filter((o) => !o.cancelada).reduce((s, o) => s + o.saldoCapital * categoriaDe(o.diasMora).tasa, 0))
+}
+
+const estadoRodamiento = (o: OperacionVista): EstadoRodamiento => (o.cancelada ? 'cancelada' : o.tramo)
+
+/** Matriz de rodamiento con los últimos 12 meses de la cartera. */
+function matrizHistorica() {
+  const pares: [EstadoRodamiento, EstadoRodamiento][] = []
+  let amortizado = 0
+  let base = 0
+  for (let i = 12; i >= 1; i--) {
+    const fin = endOfMonth(addMonths(HOY, -i))
+    const finSig = i === 1 ? HOY : endOfMonth(addMonths(HOY, -i + 1))
+    const antes = new Map(todasLasOperaciones(fin).filter((o) => !o.cancelada).map((o) => [o.id, o]))
+    todasLasOperaciones(finSig).forEach((o) => {
+      const a = antes.get(o.id)
+      if (!a) return
+      pares.push([estadoRodamiento(a), estadoRodamiento(o)])
+      if (a.diasMora === 0) {
+        amortizado += Math.max(0, a.saldoCapital - o.saldoCapital)
+        base += a.saldoCapital
+      }
+    })
+  }
+  return { matriz: estimarMatriz(pares), observaciones: pares.length, amortizacion: base ? amortizado / base : 0.03 }
+}
+
+let cacheMatriz: { version: number; datos: ReturnType<typeof matrizHistorica> } | null = null
+
+export async function obtenerRiesgo(estres = 0) {
+  if (!cacheMatriz || cacheMatriz.version !== version) cacheMatriz = { version, datos: matrizHistorica() }
+  const { matriz, observaciones, amortizacion } = cacheMatriz.datos
+  const ops = todasLasOperaciones().filter((o) => !o.cancelada)
+  const riesgoPorCliente = new Map<string, ResultadoRiesgo>()
+  const filas = ops.map((o) => {
+    if (!riesgoPorCliente.has(o.clienteId)) riesgoPorCliente.set(o.clienteId, riesgoCliente(o.clienteId))
+    const r = riesgoPorCliente.get(o.clienteId)!
+    const pd = o.diasMora > 90 ? 1 : r.pd
+    const lgd = lgdDe(o.id)
+    const cat = categoriaDe(o.diasMora)
+    return { op: o, cliente: o.cliente.nombre, categoria: cat.id, provision: round2(o.saldoCapital * cat.tasa), pd, lgd, score: r.score, banda: r.banda, perdidaEsperada: round2(pd * lgd * o.saldoCapital) }
+  })
+  const saldo = round2(ops.reduce((s, o) => s + o.saldoCapital, 0))
+  const requerida = round2(filas.reduce((s, f) => s + f.provision, 0))
+  const constituida = provisionRequerida(endOfMonth(addMonths(HOY, -1)))
+  const vencida = round2(ops.filter((o) => o.diasMora > 30).reduce((s, o) => s + o.saldoCapital, 0))
+  const porCategoria = CATEGORIAS.map((c) => {
+    const del = filas.filter((f) => f.categoria === c.id)
+    return { ...c, operaciones: del.length, saldo: round2(del.reduce((s, f) => s + f.op.saldoCapital, 0)), provision: round2(del.reduce((s, f) => s + f.provision, 0)) }
+  })
+  const vector = ESTADOS.map((e) => ops.filter((o) => estadoRodamiento(o) === e).reduce((s, o) => s + o.saldoCapital, 0))
+  const m = estresar(matriz, estres)
+  const serie = proyectar(vector, m, 12, amortizacion)
+  // La proyección usa tasas por tramo; se escala para partir exactamente de la provisión requerida de hoy.
+  const escala = provisionDe(vector) ? requerida / provisionDe(vector) : 1
+  const proyeccion = [{ mes: HOY, saldo, enMora: vector.slice(2, 6).reduce((a, b) => a + b, 0), provision: provisionDe(vector) },
+    ...serie.map((v, k) => ({ mes: endOfMonth(addMonths(HOY, k + 1)), saldo: v.slice(0, 6).reduce((a, b) => a + b, 0), enMora: v.slice(2, 6).reduce((a, b) => a + b, 0), provision: provisionDe(v) }))]
+    .map((p) => ({ ...p, saldo: round2(p.saldo), enMora: round2(p.enMora), provision: round2(p.provision * escala) }))
+  const agrupar = (clave: (f: (typeof filas)[number]) => string) => {
+    const mapa = new Map<string, { saldo: number; pe: number; provision: number; n: number }>()
+    filas.forEach((f) => {
+      const k = clave(f)
+      const v = mapa.get(k) ?? { saldo: 0, pe: 0, provision: 0, n: 0 }
+      v.saldo += f.op.saldoCapital
+      v.pe += f.perdidaEsperada
+      v.provision += f.provision
+      v.n++
+      mapa.set(k, v)
+    })
+    return [...mapa.entries()].map(([k, v]) => ({ clave: k, operaciones: v.n, saldo: round2(v.saldo), perdidaEsperada: round2(v.pe), provision: round2(v.provision) })).sort((a, b) => b.perdidaEsperada - a.perdidaEsperada)
+  }
+  const bandas: Banda[] = ['Excelente', 'Bueno', 'Regular', 'Alto riesgo']
+  return esperar({
+    saldo,
+    requerida,
+    constituida,
+    porConstituir: round2(requerida - constituida),
+    vencida,
+    coberturaVencida: vencida ? requerida / vencida : 0,
+    perdidaEsperada: round2(filas.reduce((s, f) => s + f.perdidaEsperada, 0)),
+    pdPromedio: saldo ? filas.reduce((s, f) => s + f.pd * f.op.saldoCapital, 0) / saldo : 0,
+    porCategoria,
+    proyeccion,
+    matriz: m.map((fila) => fila.map((p) => Math.round(p * 1000) / 1000)),
+    observaciones,
+    amortizacion,
+    porProducto: agrupar((f) => f.op.producto),
+    porGestor: agrupar((f) => f.op.cliente.gestor),
+    porBanda: bandas.map((b) => {
+      const del = filas.filter((f) => f.banda === b)
+      return { banda: b, operaciones: del.length, saldo: round2(del.reduce((s, f) => s + f.op.saldoCapital, 0)), enMora: del.filter((f) => f.op.diasMora > 30).length }
+    }),
+    mayores: [...filas].sort((a, b) => b.perdidaEsperada - a.perdidaEsperada).slice(0, 8)
+      .map((f) => ({ id: f.op.id, cliente: f.cliente, clienteId: f.op.clienteId, saldo: f.op.saldoCapital, pd: f.pd, lgd: f.lgd, perdidaEsperada: f.perdidaEsperada, categoria: f.categoria, score: f.score })),
+  })
+}
+
 // ── Nueva obligación ────────────────────────────────────────────────────────
 export const catalogoProductos: ProductoCredito[] = PRODUCTOS.map((p) => ({ ...p, ...CONDICIONES_PRODUCTO[p.id] }))
 
@@ -424,7 +586,7 @@ export const catalogoProductos: ProductoCredito[] = PRODUCTOS.map((p) => ({ ...p
 export function datosDeudor(clienteId: string) {
   const cliente = db.clientes.find((c) => c.id === clienteId)
   if (!cliente) return null
-  const ops = todasLasOperaciones().filter((o) => o.clienteId === clienteId && !o.cancelada)
+  const ops = operacionesDe(clienteId).filter((o) => !o.cancelada)
   const peorMora = ops.reduce((m, o) => Math.max(m, o.diasMora), 0)
   const exposicion = {
     saldo: round2(ops.reduce((s, o) => s + o.saldoCapital, 0)),
@@ -436,7 +598,9 @@ export function datosDeudor(clienteId: string) {
   if (cliente.estado === 'Inactivo') bloqueo = 'El cliente está inactivo. Reactívalo desde su ficha para otorgarle crédito.'
   else if (peorMora > 30) bloqueo = `Tiene una operación con ${peorMora} días de mora. No se otorga crédito con mora mayor a 30 días.`
   else if (db.juicios.some((j) => j.clienteId === clienteId)) bloqueo = 'Tiene una causa judicial abierta.'
-  return { cliente, exposicion, bloqueo }
+  const mesesSocio = mesesDesdeActualizacion(cliente.socio, HOY)
+  if (!bloqueo && mesesSocio >= VIGENCIA_SOCIO_MESES) bloqueo = `Sus datos socioeconómicos se verificaron hace ${mesesSocio} meses. Actualízalos antes de evaluar el crédito.`
+  return { cliente, exposicion, bloqueo, datosVencidos: mesesSocio >= VIGENCIA_SOCIO_MESES }
 }
 
 export async function crearObligacion(d: DatosObligacion) {
@@ -448,6 +612,9 @@ export async function crearObligacion(d: DatosObligacion) {
     const primero = Object.values(e)[0]
     if (primero) throw new Error(`${paso.titulo}: ${primero}`)
   }
+  const tablaNueva = tablaObligacion(d, HOY)
+  const riesgo = riesgoPropuesta(d, Math.max(...tablaNueva.map((x) => x.cuota)))!
+  if (riesgo.decision.tono === 'bloqueo' && d.observacion.trim().length < 15) throw new Error('Riesgo alto: justifica la excepción en las observaciones de la aprobación.')
   const correlativo = Math.max(...db.operaciones.map((o) => Number(o.id.slice(-4)))) + 1
   const c = costos(d, p)
   const op: Operacion = {
@@ -463,7 +630,7 @@ export async function crearObligacion(d: DatosObligacion) {
     primerVencimiento: primerVencimiento(HOY, d.diaPago),
     graciaMeses: d.graciaMeses,
     tabla: tablaObligacion(d, HOY),
-    originacion: { ...c, medio: d.medio, cuentaDestino: d.cuentaDestino, aprobadaPor: USUARIA_DEMO.nombre, observacion: d.observacion },
+    originacion: { ...c, medio: d.medio, cuentaDestino: d.cuentaDestino, aprobadaPor: USUARIA_DEMO.nombre, observacion: d.observacion, score: riesgo.score, pd: riesgo.pd },
   }
   db.operaciones.push(op)
   let nG = db.garantias.flatMap((g) => g.garantes).length + 1

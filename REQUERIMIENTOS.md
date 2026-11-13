@@ -135,11 +135,57 @@ Lo que ya existe (campañas, reglas, promesas, n8n) se mantiene y se agrega:
 - **Calendario y horarios:** ventanas permitidas de contacto y feriados. No se contacta fuera de horario.
 - **n8n:** se agregan una bitácora de ejecuciones (éxitos y errores) y webhooks de entrada (por ejemplo, la respuesta de WhatsApp). Sigue siendo solo interfaz.
 
-## 7. Orden sugerido de construcción
+## 7. Riesgo: scoring y provisiones ✅ (13 nov 2026)
 
-1. Clientes (crear, editar, ficha), porque las demás partes dependen de él.
-2. Operación: detalle con garantes y estado de cuenta.
-3. Nueva obligación.
-4. Pagos y Caja.
-5. Cobranza ampliada.
-6. Contabilidad.
+### 7.1 Información socioeconómica más completa (en la ficha del cliente)
+
+- **Ingresos desglosados:** sueldo, ingresos del negocio y otros.
+- **Egresos desglosados:** vivienda, alimentación, educación, cuotas de otras deudas y otros.
+- **Patrimonio:**
+  - Activos: inmuebles, vehículos, ahorros y otros.
+  - Pasivos: deudas en otras entidades.
+  - Patrimonio neto calculado.
+- **Empleo:**
+  - Empresa donde trabaja, cargo, antigüedad laboral y tipo de contrato.
+  - Si es independiente: si tiene RUC, su número, el tipo de actividad (sector) y la antigüedad del negocio.
+- **Hogar:** tipo de vivienda (propia, arrendada o familiar) y cargas familiares.
+- En Nueva obligación, un paso de **evaluación** muestra estos datos.
+  - Si tienen más de 6 meses, avisa y pide actualizarlos antes de seguir.
+
+### 7.2 Medidor de riesgo del deudor (scoring)
+
+- **Score de 300 a 850** con una aguja, la banda (excelente, bueno, regular, alto riesgo) y la **probabilidad de no pago a 12 meses**.
+- **Por qué sale ese puntaje:** cada variable suma o resta puntos y se ve en un gráfico.
+  - Variables: carga de la cuota sobre el ingreso, capacidad libre, antigüedad laboral, patrimonio neto, deudas externas, puntualidad histórica, mora actual, garantía, etc.
+- **Dos modelos:**
+  - **De originación** para solicitantes nuevos: usa solo datos socioeconómicos.
+  - **De comportamiento** para clientes con historial: además usa cómo ha pagado.
+- **Dónde aparece:** en la aprobación de Nueva obligación (con sugerencia de aprobar, aprobar con condiciones o rechazar) y en la ficha del cliente.
+
+### 7.3 Provisiones y su proyección (nuevo módulo "Riesgo y provisiones")
+
+- **Provisión requerida hoy**, por calificación de cartera:
+  - Categorías A1 a E según los días de mora.
+  - Un porcentaje por categoría (parámetros de la demo).
+- **Pérdida esperada** por operación (probabilidad de no pago × pérdida si no paga × saldo).
+  - La pérdida si no paga depende de la garantía: es menor con hipoteca y mayor sin garantía.
+- **Proyección a 3, 6 y 12 meses:**
+  - Se usan las tasas de rodamiento entre tramos de mora, calculadas con los últimos 12 meses de la propia cartera.
+  - Resultado: cuánto saldo pasará a mora y cuánta provisión adicional habrá que constituir mes a mes.
+- **Comparaciones:** provisión requerida frente a la constituida y frente a la pérdida esperada, con desglose por producto, gestor y calificación.
+- **Simulador de estrés:** "¿y si la mora sube 20 %?".
+
+**Transparencia:**
+- Los datos son inventados.
+- Los cálculos (rodamiento, pérdida esperada) se hacen de verdad sobre la cartera de la demo.
+- Los pesos del scoring son reglas expertas de demostración, no un modelo entrenado ni validado.
+
+## 8. Orden sugerido de construcción
+
+1. Clientes (crear, editar, ficha), porque las demás partes dependen de él. ✅
+2. Operación: detalle con garantes y estado de cuenta. ✅
+3. Nueva obligación. ✅
+4. Pagos y Caja. ✅
+5. Riesgo: datos socioeconómicos, scoring y provisiones. ✅
+6. Cobranza ampliada.
+7. Contabilidad (con el asiento mensual de provisiones que sale de 7.3).

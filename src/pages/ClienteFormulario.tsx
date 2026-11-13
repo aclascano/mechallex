@@ -4,10 +4,10 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { Pasos } from '../components/Pasos'
 import { Boton, Campo, Encabezado, Entrada, EsqueletoPagina, Interruptor, Panel, Segmentado, Selector, Vacio } from '../components/ui'
 import {
-  CANALES, capacidadPago, clienteVacio, ESTADOS_CIVILES, PASOS_CLIENTE, requiereConyuge, validarPaso, type Errores, type PasoCliente,
+  CANALES, capacidadPago, clienteVacio, conTotales, SECTORES, ESTADOS_CIVILES, PASOS_CLIENTE, requiereConyuge, validarPaso, type Errores, type PasoCliente,
 } from '../domain/clientes'
 import { fmtFecha } from '../domain/fechas'
-import type { DatosCliente, Direccion, SituacionLaboral } from '../domain/tipos'
+import type { DatosCliente, Direccion, SituacionLaboral, Socioeconomico } from '../domain/tipos'
 import { ICONO_CANAL } from '../lib/canales'
 import { cx, dinero, porcentaje } from '../lib/formato'
 import { actualizarCliente, catalogosCliente as cat, crearCliente, fechaCorte, identificacionUsada, obtenerDatosCliente } from '../services/api'
@@ -18,7 +18,7 @@ let borrador: { datos: DatosCliente; paso: number } | null = null
 export default function PaginaClienteFormulario() {
   const { id } = useParams()
   const editando = Boolean(id)
-  const [datos, setDatos] = useState<DatosCliente | null>(() => (editando ? null : borrador?.datos ?? clienteVacio(cat.gestores[0])))
+  const [datos, setDatos] = useState<DatosCliente | null>(() => (editando ? null : borrador?.datos ?? clienteVacio(cat.gestores[0], fechaCorte())))
   const [original, setOriginal] = useState<DatosCliente | null>(null)
   const [paso, setPaso] = useState(() => (editando ? 0 : borrador?.paso ?? 0))
   const [intentado, setIntentado] = useState<Set<number>>(new Set())
@@ -59,7 +59,7 @@ export default function PaginaClienteFormulario() {
   const pasoValido = (i: number) => Object.keys(erroresDe(pasos[i].id)).length === 0
   const ultimo = paso === pasos.length - 1
 
-  const set = <K extends keyof DatosCliente>(k: K, v: DatosCliente[K]) => setDatos((d) => (d ? { ...d, [k]: v } : d))
+  const set = <K extends keyof DatosCliente>(k: K, v: DatosCliente[K]) => setDatos((d) => (d ? conTotales({ ...d, [k]: v }) : d))
   const ir = (i: number) => {
     setPaso(i)
     requestAnimationFrame(() => titulo.current?.focus())
@@ -81,7 +81,7 @@ export default function PaginaClienteFormulario() {
     try {
       if (editando && id) {
         const r = await actualizarCliente(id, datos!)
-        navigate(`/clientes/${id}?guardado=${r.cambios}`)
+        navigate(volverAObligacion ? `/obligaciones/nueva?cliente=${id}` : `/clientes/${id}?guardado=${r.cambios}`)
       } else {
         const c = await crearCliente(datos!)
         borrador = null
@@ -98,18 +98,18 @@ export default function PaginaClienteFormulario() {
 
   return (
     <div>
-      <Link to={editando ? `/clientes/${id}` : volverAObligacion ? '/obligaciones/nueva' : '/clientes'} className="mb-3 inline-flex items-center gap-1.5 text-[0.8rem] text-ink-3 hover:text-ink">
-        <ArrowLeft size={14} /> {editando ? 'Volver a la ficha' : volverAObligacion ? 'Volver a la obligación' : 'Clientes'}
+      <Link to={volverAObligacion ? '/obligaciones/nueva' : editando ? `/clientes/${id}` : '/clientes'} className="mb-3 inline-flex items-center gap-1.5 text-[0.8rem] text-ink-3 hover:text-ink">
+        <ArrowLeft size={14} /> {volverAObligacion ? 'Volver a la obligación' : editando ? 'Volver a la ficha' : 'Clientes'}
       </Link>
       <Encabezado
         titulo={editando ? 'Editar cliente' : 'Nuevo cliente'}
         descripcion={editando
-          ? <>Los cambios quedan en el historial del cliente con tu nombre, la fecha y la hora.</>
+          ? <>Los cambios quedan en el historial con tu nombre, la fecha y la hora. Al guardar, los datos socioeconómicos quedan verificados hoy{volverAObligacion ? ' y vuelves a la obligación' : ''}.</>
           : volverAObligacion
             ? <>Al guardarlo vuelves a la nueva obligación con este cliente como deudor.</>
             : <>Seis pasos. Lo que llenes se guarda como borrador mientras navegas por la aplicación.</>}
         acciones={!editando && borrador && (datos.cedula || datos.nombres || datos.nombre) ? (
-          <Boton variante="fantasma" onClick={() => { borrador = null; setDatos(clienteVacio(cat.gestores[0])); setIntentado(new Set()); ir(0) }}>Descartar borrador</Boton>
+          <Boton variante="fantasma" onClick={() => { borrador = null; setDatos(clienteVacio(cat.gestores[0], fechaCorte())); setIntentado(new Set()); ir(0) }}>Descartar borrador</Boton>
         ) : undefined}
       />
 
@@ -298,12 +298,20 @@ function PasoContacto({ d, set, e }: PasoProps) {
 
 function PasoEconomia({ d, set, e }: PasoProps) {
   const natural = d.tipoPersona === 'Natural'
+  const so = d.socio
+  const fijarSocio = (cambio: Partial<Socioeconomico>) => set('socio', { ...so, ...cambio })
   const capacidad = capacidadPago(d)
   const cuotaMax = Math.min(capacidad, d.ingresos * 0.4)
   const uso = d.ingresos > 0 ? Math.min(1, d.egresos / d.ingresos) : 0
+  const independiente = d.situacionLaboral === 'Independiente' || d.situacionLaboral === 'Empresa'
+  const monto = <K extends 'ingresos' | 'egresos' | 'activos'>(grupo: K, campo: string, etiqueta: string, ayuda?: string) => (
+    <Campo etiqueta={etiqueta} ayuda={ayuda}>
+      <DineroEntrada valor={(so[grupo] as Record<string, number>)[campo]} onCambio={(v) => fijarSocio({ [grupo]: { ...so[grupo], [campo]: v } } as Partial<Socioeconomico>)} />
+    </Campo>
+  )
   return (
     <div>
-      <Grupo titulo="Actividad">
+      <Grupo titulo={natural ? 'Trabajo' : 'Empresa'}>
         {natural && (
           <div className="sm:col-span-2">
             <Segmentado<SituacionLaboral>
@@ -319,14 +327,79 @@ function PasoEconomia({ d, set, e }: PasoProps) {
           <datalist id="actividades">{cat.actividades.map((a) => <option key={a} value={a} />)}</datalist>
         </Campo>
         {natural && d.situacionLaboral === 'Dependiente' && (
-          <Campo etiqueta="Empleador" error={e.empleador}><Entrada value={d.empleador} onChange={(ev) => set('empleador', ev.target.value)} aria-invalid={!!e.empleador} /></Campo>
+          <>
+            <Campo etiqueta="Empresa donde trabaja" error={e.empleador}><Entrada value={d.empleador} onChange={(ev) => set('empleador', ev.target.value)} aria-invalid={!!e.empleador} /></Campo>
+            <Campo etiqueta="Cargo" opcional><Entrada value={so.empleo.cargo} onChange={(ev) => fijarSocio({ empleo: { ...so.empleo, cargo: ev.target.value } })} /></Campo>
+            <Campo etiqueta="Antigüedad laboral (años)"><Entrada type="number" min={0} step={0.5} value={so.empleo.antiguedadAnios || ''} onChange={(ev) => fijarSocio({ empleo: { ...so.empleo, antiguedadAnios: Math.max(0, Number(ev.target.value)) } })} className="text-right" /></Campo>
+            <Campo etiqueta="Tipo de contrato" error={e.contrato}>
+              <Selector value={so.empleo.contrato} onChange={(ev) => fijarSocio({ empleo: { ...so.empleo, contrato: ev.target.value as Socioeconomico['empleo']['contrato'] } })} aria-invalid={!!e.contrato}>
+                <option value="">Elegir…</option><option>Indefinido</option><option>Plazo fijo</option><option>Servicios profesionales</option>
+              </Selector>
+            </Campo>
+          </>
+        )}
+        {independiente && (
+          <>
+            <Campo etiqueta="Sector de la actividad" error={e.sector}>
+              <Selector value={so.negocio.sector} onChange={(ev) => fijarSocio({ negocio: { ...so.negocio, sector: ev.target.value } })} aria-invalid={!!e.sector}>
+                <option value="">Elegir…</option>{SECTORES.map((x) => <option key={x}>{x}</option>)}
+              </Selector>
+            </Campo>
+            <Campo etiqueta="Antigüedad del negocio (años)"><Entrada type="number" min={0} value={so.negocio.antiguedadAnios || ''} onChange={(ev) => fijarSocio({ negocio: { ...so.negocio, antiguedadAnios: Math.max(0, Number(ev.target.value)) } })} className="text-right" /></Campo>
+            {natural && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[0.8rem] font-medium text-ink-2">¿Tiene RUC?</span>
+                <div className="flex h-9 items-center gap-3">
+                  <Interruptor activo={so.negocio.tieneRuc} onCambio={() => fijarSocio({ negocio: { ...so.negocio, tieneRuc: !so.negocio.tieneRuc, ruc: so.negocio.ruc || (d.cedula.length === 10 ? `${d.cedula}001` : '') } })} etiqueta="Tiene RUC" />
+                  <span className="text-[0.8rem] text-ink-2">{so.negocio.tieneRuc ? 'Sí, negocio formalizado' : 'No, negocio informal'}</span>
+                </div>
+              </div>
+            )}
+            {natural && so.negocio.tieneRuc && (
+              <Campo etiqueta="Número de RUC" error={e.rucNegocio}><Entrada value={so.negocio.ruc} inputMode="numeric" maxLength={13} onChange={(ev) => fijarSocio({ negocio: { ...so.negocio, ruc: ev.target.value.replace(/[^0-9]/g, '') } })} aria-invalid={!!e.rucNegocio} /></Campo>
+            )}
+          </>
         )}
       </Grupo>
-      <Grupo titulo="Ingresos y egresos mensuales" detalle={natural ? 'Promedio de los últimos tres meses.' : 'Promedio mensual según estados financieros.'}>
-        <Campo etiqueta="Ingresos" error={e.ingresos}><DineroEntrada valor={d.ingresos} onCambio={(v) => set('ingresos', v)} invalido={!!e.ingresos} /></Campo>
-        <Campo etiqueta="Egresos" error={e.egresos} ayuda="Gastos fijos, otras deudas y alimentación."><DineroEntrada valor={d.egresos} onCambio={(v) => set('egresos', v)} invalido={!!e.egresos} /></Campo>
-        <Campo etiqueta="Patrimonio" opcional ayuda="Bienes menos deudas."><DineroEntrada valor={d.patrimonio} onCambio={(v) => set('patrimonio', v)} /></Campo>
+
+      <Grupo titulo="Ingresos mensuales" detalle={natural ? 'Promedio de los últimos tres meses.' : 'Promedio mensual según estados financieros.'}>
+        {d.situacionLaboral === 'Dependiente' && monto('ingresos', 'sueldo', 'Sueldo líquido')}
+        {independiente && monto('ingresos', 'negocio', 'Ingresos netos del negocio')}
+        {monto('ingresos', 'otros', d.situacionLaboral === 'Jubilado/a' ? 'Pensión y otros ingresos' : 'Otros ingresos', 'Arriendos, pensión, remesas…')}
+        <Total etiqueta="Total de ingresos" valor={d.ingresos} error={e.ingresos} />
       </Grupo>
+
+      <Grupo titulo="Egresos mensuales">
+        {natural && monto('egresos', 'vivienda', 'Vivienda', 'Arriendo o dividendo, servicios básicos')}
+        {natural && monto('egresos', 'alimentacion', 'Alimentación')}
+        {natural && monto('egresos', 'educacion', 'Educación y salud')}
+        {monto('egresos', 'deudas', 'Cuotas de otras deudas')}
+        {monto('egresos', 'otros', natural ? 'Otros gastos' : 'Gastos operativos')}
+        <Total etiqueta="Total de egresos" valor={d.egresos} error={e.egresos} />
+      </Grupo>
+
+      <Grupo titulo="Patrimonio" detalle="Lo que tiene menos lo que debe a otras entidades.">
+        {monto('activos', 'inmuebles', 'Inmuebles')}
+        {monto('activos', 'vehiculos', 'Vehículos')}
+        {monto('activos', 'ahorros', 'Ahorros e inversiones')}
+        {monto('activos', 'otros', natural ? 'Otros bienes' : 'Inventario y maquinaria')}
+        <Campo etiqueta="Deudas en otras entidades" ayuda="Saldo total pendiente."><DineroEntrada valor={so.pasivosExternos} onCambio={(v) => fijarSocio({ pasivosExternos: v })} /></Campo>
+        <Total etiqueta="Patrimonio neto" valor={d.patrimonio} />
+      </Grupo>
+
+      {natural && (
+        <Grupo titulo="Hogar">
+          <Campo etiqueta="Vivienda" error={e.vivienda}>
+            <Selector value={so.vivienda} onChange={(ev) => fijarSocio({ vivienda: ev.target.value as Socioeconomico['vivienda'] })} aria-invalid={!!e.vivienda}>
+              <option value="">Elegir…</option><option>Propia</option><option>Arrendada</option><option>Familiar</option>
+            </Selector>
+          </Campo>
+          <Campo etiqueta="Cargas familiares" ayuda="Personas que dependen de sus ingresos.">
+            <Selector value={so.cargas} onChange={(ev) => fijarSocio({ cargas: Number(ev.target.value) })}>{[0, 1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}</Selector>
+          </Campo>
+        </Grupo>
+      )}
+
       <div className="mt-6 grid gap-4 rounded-[12px] border border-line bg-panel-2/50 p-4 sm:grid-cols-[1fr_1fr] sm:p-5">
         <div>
           <p className="text-[0.75rem] text-ink-3">Capacidad de pago mensual</p>
@@ -339,9 +412,21 @@ function PasoEconomia({ d, set, e }: PasoProps) {
         <div className="sm:border-l sm:border-line sm:pl-5">
           <p className="text-[0.75rem] text-ink-3">Cuota máxima recomendada</p>
           <p className="display tabular mt-1 text-[1.9rem] leading-none text-rose-ink">{dinero(cuotaMax)}</p>
-          <p className="mt-3 text-[0.75rem] text-ink-3">El menor valor entre la capacidad de pago y el 40 % de los ingresos. Se usará al crear obligaciones.</p>
+          <p className="mt-3 text-[0.75rem] text-ink-3">El menor valor entre la capacidad de pago y el 40 % de los ingresos. Se usa al crear obligaciones.</p>
         </div>
       </div>
+    </div>
+  )
+}
+
+function Total({ etiqueta, valor, error }: { etiqueta: string; valor: number; error?: string }) {
+  return (
+    <div className="flex flex-col justify-end gap-1">
+      <div className="flex h-9 items-center justify-between rounded-[9px] bg-panel-2 px-3 text-[0.875rem]">
+        <span className="text-ink-2">{etiqueta}</span>
+        <span className="tabular font-semibold">{dinero(valor)}</span>
+      </div>
+      {error && <span role="alert" className="text-[0.75rem] font-medium text-bad">{error}</span>}
     </div>
   )
 }

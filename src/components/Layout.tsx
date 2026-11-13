@@ -1,5 +1,5 @@
 import {
-  BookOpenCheck, Calculator, FilePlus2, ChartColumnBig, Gavel, LayoutDashboard, Menu, Moon, Search, Sun, Users, Wallet, Workflow, X, Landmark,
+  BookOpenCheck, Calculator, FilePlus2, Gauge, ChartColumnBig, Gavel, LayoutDashboard, Menu, Moon, Search, Sun, Users, Wallet, Workflow, X, Landmark,
 } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
@@ -30,6 +30,7 @@ const NAV: { grupo: string; items: { to: string; label: string; icono: ReactNode
   {
     grupo: 'Finanzas',
     items: [
+      { to: '/riesgo', label: 'Riesgo y provisiones', icono: <Gauge size={17} /> },
       { to: '/contabilidad', label: 'Contabilidad', icono: <BookOpenCheck size={17} /> },
       { to: '/reportes', label: 'Reportes', icono: <ChartColumnBig size={17} /> },
     ],

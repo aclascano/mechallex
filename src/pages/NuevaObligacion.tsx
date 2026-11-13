@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { BarraCobertura } from '../components/Cobertura'
+import { MedidorRiesgo } from '../components/MedidorRiesgo'
 import { ejeProps, Leyenda, rejillaProps, TooltipMx } from '../components/graficos'
 import { Pasos } from '../components/Pasos'
 import { Boton, Campo, Encabezado, Entrada, EsqueletoPagina, Insignia, InsigniaTramo, Interruptor, Panel, Segmentado, Selector, Tabla, Td, Th } from '../components/ui'
@@ -16,7 +17,7 @@ import {
 import type { Producto, TipoGarantia } from '../domain/tipos'
 import { compacto, cx, dinero, dineroCorto, plural, porcentaje } from '../lib/formato'
 import { useServicio } from '../lib/useServicio'
-import { catalogoProductos, crearObligacion, datosDeudor, fechaCorte, listarClientes, usuariaActual } from '../services/api'
+import { catalogoProductos, crearObligacion, datosDeudor, fechaCorte, listarClientes, riesgoPropuesta, usuariaActual } from '../services/api'
 
 const HOY = fechaCorte()
 const USUARIA = usuariaActual
@@ -234,7 +235,12 @@ function PasoDeudor({ datos, set, e, deudor }: { datos: DatosObligacion; set: Fi
             <Cifra etiqueta="Deuda vigente" valor={dinero(deudor.exposicion.saldo)} nota={plural(deudor.exposicion.operaciones, 'operación', 'operaciones')} />
             <Cifra etiqueta="Cuotas que ya paga" valor={dinero(deudor.exposicion.cuotasVigentes)} nota="por mes" />
           </dl>
-          {deudor.bloqueo && <p role="alert" className="mt-4 flex items-start gap-2 text-[0.85rem] font-medium text-bad"><OctagonX size={17} className="mt-px shrink-0" />{deudor.bloqueo}</p>}
+          {deudor.bloqueo && (
+            <div role="alert" className="mt-4 flex flex-wrap items-start justify-between gap-3 text-[0.85rem] font-medium text-bad">
+              <p className="flex items-start gap-2"><OctagonX size={17} className="mt-px shrink-0" />{deudor.bloqueo}</p>
+              {deudor.datosVencidos && <Link to={`/clientes/${deudor.cliente.id}/editar?volver=obligacion`} className="inline-flex h-9 items-center rounded-[9px] border border-line-strong bg-panel px-3.5 text-[0.85rem] font-medium text-ink hover:bg-panel-2">Actualizar datos</Link>}
+            </div>
+          )}
         </div>
       )}
       {!deudor && !q && <p className="text-[0.85rem] text-ink-3">Busca al deudor por nombre o cédula. Solo se le puede prestar a un cliente activo, sin mora mayor a 30 días ni juicios.</p>}
@@ -506,6 +512,9 @@ function PasoAprobacion({ datos, set, e, deudor, ev, bloqueada }: {
 }) {
   const ICONO = { ok: CheckCircle2, aviso: AlertTriangle, bloqueo: OctagonX }
   const COLOR = { ok: 'text-ok', aviso: 'text-warn', bloqueo: 'text-bad' }
+  const r = riesgoPropuesta(datos, ev.cuotaMax)
+  const excepcion = r?.decision.tono === 'bloqueo'
+  const faltaJustificar = excepcion && datos.observacion.trim().length < 15
   const medidor = (valor: number, limite: number) => (
     <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line" aria-hidden="true">
       <div className={cx('h-full rounded-full', valor > limite ? 'bg-bad' : valor > limite * 0.8 ? 'bg-warn' : 'bg-ok')} style={{ width: `${Math.min(1, valor) * 100}%` }} />
@@ -526,6 +535,8 @@ function PasoAprobacion({ datos, set, e, deudor, ev, bloqueada }: {
         </div>
       </div>
 
+      {r && <MedidorRiesgo r={r} titulo="Score de la solicitud" />}
+
       <ul className="space-y-2">
         {ev.alertas.map((a, i) => {
           const I = ICONO[a.nivel]
@@ -544,18 +555,19 @@ function PasoAprobacion({ datos, set, e, deudor, ev, bloqueada }: {
         ].map(([k, v]) => <div key={k}><dt className="text-[0.75rem] text-ink-3">{k}</dt><dd className="tabular mt-0.5">{v}</dd></div>)}
       </dl>
 
-      <Campo etiqueta="Observaciones de la aprobación" opcional>
+      <Campo etiqueta={excepcion ? 'Justificación de la excepción' : 'Observaciones de la aprobación'} opcional={!excepcion} ayuda={excepcion ? 'El score es de riesgo alto: para aprobar, explica por qué se hace la excepción (mínimo 15 caracteres).' : undefined}>
         <textarea value={datos.observacion} onChange={(ev) => set('observacion', ev.target.value)} rows={3}
           className="w-full resize-none rounded-[9px] border border-line-strong bg-panel px-3 py-2 text-[0.875rem] focus-visible:border-rose focus-visible:ring-2 focus-visible:ring-rose/30 focus-visible:outline-none" />
       </Campo>
 
+      {!bloqueada && faltaJustificar && <p className="flex items-start gap-2 rounded-[10px] bg-warn-soft px-3.5 py-2.5 text-[0.85rem] font-medium text-warn"><AlertTriangle size={17} className="mt-px shrink-0" />Riesgo alto: escribe la justificación para poder aprobar.</p>}
       {bloqueada ? (
         <p role="alert" className="flex items-start gap-2 rounded-[10px] bg-bad-soft px-3.5 py-2.5 text-[0.85rem] font-medium text-bad"><OctagonX size={17} className="mt-px shrink-0" />No se puede aprobar: la cuota supera la capacidad de pago. Baja el monto, alarga el plazo o elige el sistema francés.</p>
       ) : (
         <label className={cx('flex cursor-pointer items-start gap-3 rounded-[12px] border p-4 transition-colors', datos.aprobada ? 'border-rose bg-rose-soft/40' : e.aprobada ? 'border-bad' : 'border-line hover:border-line-strong')}>
-          <input type="checkbox" checked={datos.aprobada} onChange={(ev) => set('aprobada', ev.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--rose)]" />
+          <input type="checkbox" checked={datos.aprobada} disabled={faltaJustificar} onChange={(ev) => set('aprobada', ev.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--rose)]" />
           <span>
-            <span className="block text-[0.875rem] font-medium">Apruebo esta obligación</span>
+            <span className="block text-[0.875rem] font-medium">{excepcion ? 'Apruebo esta obligación como excepción' : 'Apruebo esta obligación'}</span>
             <span className="block text-[0.8rem] text-ink-3">{USUARIA.nombre} · {USUARIA.cargo} · {fmtFechaLarga(HOY)}. Si cambias las condiciones, la aprobación se anula.</span>
             {e.aprobada && <span role="alert" className="mt-1 block text-[0.75rem] font-medium text-bad">{e.aprobada}</span>}
           </span>
