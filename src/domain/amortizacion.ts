@@ -1,4 +1,4 @@
-import { addMonths, type ISODate } from './fechas'
+import { addMonths, diffDays, type ISODate } from './fechas'
 
 export type Sistema = 'frances' | 'aleman'
 
@@ -8,6 +8,10 @@ export interface ParamsCredito {
   plazoMeses: number
   sistema: Sistema
   fechaDesembolso: ISODate
+  /** Si se fija, las cuotas vencen ese día cada mes y el interés del primer periodo se prorratea por días. */
+  primerVencimiento?: ISODate
+  /** Meses iniciales en que solo se paga interés (gracia de capital). */
+  graciaMeses?: number
 }
 
 export interface Cuota {
@@ -28,25 +32,33 @@ export const round2 = (x: number) => Math.round((x + Number.EPSILON) * 100) / 10
  * - Alemán: capital fijo; la cuota baja con el saldo.
  * La última cuota absorbe el redondeo para que el capital sume exactamente el monto.
  */
+export const fechaCuota = (p: Pick<ParamsCredito, 'fechaDesembolso' | 'primerVencimiento'>, num: number) =>
+  p.primerVencimiento ? addMonths(p.primerVencimiento, num - 1) : addMonths(p.fechaDesembolso, num)
+
 export function generarTabla(p: ParamsCredito, desdeCuota = 1, saldoInicial = p.monto, plazoRestante = p.plazoMeses): Cuota[] {
   const i = p.tasaAnual / 100 / 12
   const n = plazoRestante
   const filas: Cuota[] = []
   let saldo = round2(saldoInicial)
-  const cuotaFija = i === 0 ? saldo / n : (saldo * i) / (1 - Math.pow(1 + i, -n))
-  const capitalFijo = saldo / n
+  const gracia = Math.max(0, Math.min(n - 1, (p.graciaMeses ?? 0) - (desdeCuota - 1)))
+  const nAmort = n - gracia
+  const cuotaFija = i === 0 ? saldo / nAmort : (saldo * i) / (1 - Math.pow(1 + i, -nAmort))
+  const capitalFijo = saldo / nAmort
 
   for (let k = 0; k < n; k++) {
     const num = desdeCuota + k
-    const interes = round2(saldo * i)
+    // Primer periodo irregular: interés por los días reales entre desembolso y primer vencimiento.
+    const factor = num === 1 && p.primerVencimiento ? diffDays(p.primerVencimiento, p.fechaDesembolso) / 30 : 1
+    const interesNormal = round2(saldo * i)
+    const interes = factor === 1 ? interesNormal : round2(saldo * i * factor)
     const ultima = k === n - 1
-    let capital = p.sistema === 'frances' ? round2(cuotaFija - interes) : round2(capitalFijo)
+    let capital = k < gracia ? 0 : p.sistema === 'frances' ? round2(cuotaFija - interesNormal) : round2(capitalFijo)
     if (ultima || capital > saldo) capital = saldo
     const cuota = round2(capital + interes)
     const saldoFinal = round2(saldo - capital)
     filas.push({
       n: num,
-      fecha: addMonths(p.fechaDesembolso, num),
+      fecha: fechaCuota(p, num),
       saldoInicial: saldo,
       cuota,
       interes,

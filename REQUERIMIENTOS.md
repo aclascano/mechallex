@@ -56,13 +56,13 @@ Marca: ✅ hecho · 🟡 propuesta (confirmar) · ❓ duda abierta
   - Castigo (pasa a cuentas de orden). 🟡 Pendiente: va con Contabilidad.
 - ✅ Agregado: **tabla devengada** (interés reconocido por días, cobrado, por cobrar y en cuentas de orden).
 
-## 3. Nueva obligación (reemplaza "Amortización")
+## 3. Nueva obligación (reemplaza "Amortización") ✅
 
 La pantalla actual era solo un simulador. Pasa a ser la **creación de la obligación**, por pasos:
 
 1. **Deudor:** se busca un cliente existente o se crea uno sin salir del flujo.
 2. **Producto y condiciones:**
-   - Producto, monto, plazo, tasa (con el límite del producto), sistema francés o alemán, y frecuencia (mensual o quincenal).
+   - Producto, monto, plazo, tasa (con el límite del producto), sistema francés o alemán, y frecuencia (mensual o quincenal). 🟡 Por ahora solo mensual.
    - Día de pago, periodo de gracia, seguro de desgravamen y gastos de apertura.
 3. **Garantes y garantías:** quién garantiza y con qué. Se valida la cobertura mínima que exige el producto.
 4. **Tabla de amortización:** vista previa con totales, gráfico capital/interés y la comparación francés vs. alemán.

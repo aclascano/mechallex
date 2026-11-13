@@ -11,6 +11,7 @@ const PaginaClienteFormulario = lazy(() => import('./pages/ClienteFormulario'))
 const PaginaOperaciones = lazy(() => import('./pages/Operaciones'))
 const PaginaOperacion = lazy(() => import('./pages/Operacion'))
 const PaginaAmortizacion = lazy(() => import('./pages/Amortizacion'))
+const PaginaNuevaObligacion = lazy(() => import('./pages/NuevaObligacion'))
 const PaginaPagos = lazy(() => import('./pages/Pagos'))
 const PaginaCobranza = lazy(() => import('./pages/Cobranza'))
 const PaginaJuicios = lazy(() => import('./pages/Juicios'))
@@ -32,6 +33,7 @@ export function App() {
           <Route path="clientes/:id/editar" element={conCarga(<PaginaClienteFormulario key="editar" />)} />
           <Route path="operaciones" element={conCarga(<PaginaOperaciones />)} />
           <Route path="operaciones/:id" element={conCarga(<PaginaOperacion />)} />
+          <Route path="obligaciones/nueva" element={conCarga(<PaginaNuevaObligacion />)} />
           <Route path="amortizacion" element={conCarga(<PaginaAmortizacion />)} />
           <Route path="pagos" element={conCarga(<PaginaPagos />)} />
           <Route path="cobranza" element={conCarga(<PaginaCobranza />)} />

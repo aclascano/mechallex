@@ -1,4 +1,4 @@
-import { ArrowLeft, Building2, Mail, MapPin, Pencil, Phone, Power, UserRound, X } from 'lucide-react'
+import { ArrowLeft, Building2, FilePlus2, Mail, MapPin, Pencil, Phone, Power, UserRound, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { Aviso, Boton, Dato, Encabezado, EsqueletoPagina, Insignia, InsigniaTramo, Panel, Pestanas, RecorridoCobranza, Tabla, Td, Th, Vacio } from '../components/ui'
@@ -48,6 +48,7 @@ export default function PaginaCliente() {
         acciones={
           <>
             <Boton variante="fantasma" onClick={() => setDialogo(true)} icono={<Power size={15} />}>{c.estado === 'Activo' ? 'Inactivar' : 'Reactivar'}</Boton>
+            {c.estado === 'Activo' && <Link to={`/obligaciones/nueva?cliente=${c.id}`} className="inline-flex h-9 items-center gap-2 rounded-[9px] border border-line-strong bg-panel px-3.5 text-[0.85rem] font-medium hover:bg-panel-2"><FilePlus2 size={15} /> Nueva obligación</Link>}
             <Link to={`/clientes/${c.id}/editar`} className="inline-flex h-9 items-center gap-2 rounded-[9px] bg-rail px-3.5 text-[0.85rem] font-medium text-rail-ink hover:bg-rail-2 dark:bg-rose dark:text-[oklch(0.15_0.01_290)] dark:hover:bg-rose-ink">
               <Pencil size={15} /> Editar datos
             </Link>

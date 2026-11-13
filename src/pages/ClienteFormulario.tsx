@@ -1,6 +1,7 @@
 import { ArrowLeft, ArrowRight, Building2, Check, Plus, Trash2, UserRound } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
+import { Pasos } from '../components/Pasos'
 import { Boton, Campo, Encabezado, Entrada, EsqueletoPagina, Interruptor, Panel, Segmentado, Selector, Vacio } from '../components/ui'
 import {
   CANALES, capacidadPago, clienteVacio, ESTADOS_CIVILES, PASOS_CLIENTE, requiereConyuge, validarPaso, type Errores, type PasoCliente,
@@ -25,6 +26,8 @@ export default function PaginaClienteFormulario() {
   const [errorGuardar, setErrorGuardar] = useState('')
   const [noEncontrado, setNoEncontrado] = useState(false)
   const navigate = useNavigate()
+  const [params] = useSearchParams()
+  const volverAObligacion = params.get('volver') === 'obligacion'
   const titulo = useRef<HTMLHeadingElement>(null)
 
   useEffect(() => {
@@ -82,7 +85,7 @@ export default function PaginaClienteFormulario() {
       } else {
         const c = await crearCliente(datos!)
         borrador = null
-        navigate(`/clientes/${c.id}?creado=1`)
+        navigate(volverAObligacion ? `/obligaciones/nueva?cliente=${c.id}` : `/clientes/${c.id}?creado=1`)
       }
     } catch (e) {
       setErrorGuardar((e as Error).message)
@@ -95,14 +98,16 @@ export default function PaginaClienteFormulario() {
 
   return (
     <div>
-      <Link to={editando ? `/clientes/${id}` : '/clientes'} className="mb-3 inline-flex items-center gap-1.5 text-[0.8rem] text-ink-3 hover:text-ink">
-        <ArrowLeft size={14} /> {editando ? 'Volver a la ficha' : 'Clientes'}
+      <Link to={editando ? `/clientes/${id}` : volverAObligacion ? '/obligaciones/nueva' : '/clientes'} className="mb-3 inline-flex items-center gap-1.5 text-[0.8rem] text-ink-3 hover:text-ink">
+        <ArrowLeft size={14} /> {editando ? 'Volver a la ficha' : volverAObligacion ? 'Volver a la obligación' : 'Clientes'}
       </Link>
       <Encabezado
         titulo={editando ? 'Editar cliente' : 'Nuevo cliente'}
         descripcion={editando
           ? <>Los cambios quedan en el historial del cliente con tu nombre, la fecha y la hora.</>
-          : <>Seis pasos. Lo que llenes se guarda como borrador mientras navegas por la aplicación.</>}
+          : volverAObligacion
+            ? <>Al guardarlo vuelves a la nueva obligación con este cliente como deudor.</>
+            : <>Seis pasos. Lo que llenes se guarda como borrador mientras navegas por la aplicación.</>}
         acciones={!editando && borrador && (datos.cedula || datos.nombres || datos.nombre) ? (
           <Boton variante="fantasma" onClick={() => { borrador = null; setDatos(clienteVacio(cat.gestores[0])); setIntentado(new Set()); ir(0) }}>Descartar borrador</Boton>
         ) : undefined}
@@ -111,44 +116,7 @@ export default function PaginaClienteFormulario() {
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[250px_minmax(0,1fr)] xl:gap-8">
         {/* Pasos */}
         <aside className="lg:sticky lg:top-24 lg:self-start">
-          <div className="mb-3 lg:hidden">
-            <div className="flex items-baseline justify-between text-[0.8rem]">
-              <span className="font-medium text-ink">Paso {paso + 1} de {pasos.length}</span>
-              <span className="text-ink-3">{pasos[paso].titulo}</span>
-            </div>
-            <div className="mt-2 h-1 overflow-hidden rounded-full bg-line" aria-hidden="true">
-              <div className="h-full rounded-full bg-rose transition-[width] duration-300 ease-out" style={{ width: `${((paso + 1) / pasos.length) * 100}%` }} />
-            </div>
-          </div>
-          <ol className="hidden lg:block" aria-label="Pasos">
-            {pasos.map((p, i) => {
-              const hecho = i < paso && pasoValido(i)
-              const activo = i === paso
-              const conError = intentado.has(i) && !pasoValido(i) && i !== pasos.length - 1
-              return (
-                <li key={p.id} className="relative pb-1">
-                  {i < pasos.length - 1 && <span aria-hidden="true" className={cx('absolute top-9 bottom-0 left-[17px] w-px', hecho ? 'bg-rose/50' : 'bg-line')} />}
-                  <button
-                    onClick={() => puedeIrA(i) && ir(i)}
-                    disabled={!puedeIrA(i)}
-                    aria-current={activo ? 'step' : undefined}
-                    className={cx('group flex w-full items-start gap-3 rounded-[10px] px-1.5 py-1.5 text-left transition-colors', activo ? 'bg-panel' : 'hover:bg-panel/60', !puedeIrA(i) && 'cursor-not-allowed opacity-50')}
-                  >
-                    <span className={cx(
-                      'relative z-[1] grid h-6 w-6 shrink-0 place-items-center rounded-full border text-[0.72rem] font-semibold tabular',
-                      activo ? 'border-rose bg-rose text-white dark:text-[oklch(0.15_0.01_290)]' : hecho ? 'border-rose/50 bg-rose-soft text-rose-ink' : conError ? 'border-bad text-bad' : 'border-line-strong bg-paper text-ink-3',
-                    )}>
-                      {hecho && !activo ? <Check size={13} strokeWidth={2.6} /> : i + 1}
-                    </span>
-                    <span className="min-w-0 pt-px">
-                      <span className={cx('block text-[0.85rem] font-medium', activo ? 'text-ink' : 'text-ink-2')}>{p.titulo}</span>
-                      <span className="block text-[0.75rem] text-ink-3">{conError ? 'Faltan datos' : p.detalle}</span>
-                    </span>
-                  </button>
-                </li>
-              )
-            })}
-          </ol>
+          <Pasos pasos={pasos} actual={paso} hecho={pasoValido} conError={(i) => intentado.has(i) && !pasoValido(i) && i !== pasos.length - 1} puedeIrA={puedeIrA} onIr={ir} />
 
           <div className="mt-5 hidden rounded-[14px] border border-line bg-panel p-4 lg:block">
             <div className="flex items-center gap-3">

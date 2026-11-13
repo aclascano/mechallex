@@ -2,6 +2,7 @@ import { ArrowLeft, Banknote, FileCheck2, FileClock, Gavel, Home, Landmark, Prin
 import { useCallback, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { AbonoCapital, AvisoAccion, Precancelacion } from '../components/AccionesOperacion'
+import { BarraCobertura } from '../components/Cobertura'
 import { RegistroPago } from '../components/RegistroPago'
 import {
   Boton, Dato, Dialogo, Encabezado, Entrada, EsqueletoPagina, Insignia, InsigniaTramo, Microimpresion, Panel, Pestanas, RecorridoCobranza, Segmentado, Tabla, Td, Th, Vacio, type Tono,
@@ -25,7 +26,7 @@ export default function PaginaOperacion() {
   const [params, setParams] = useSearchParams()
   const { data: d, cargando } = useServicio(() => obtenerOperacion(id), [id])
   const [accion, setAccion] = useState<Accion>(null)
-  const [aviso, setAviso] = useState('')
+  const [aviso, setAviso] = useState(() => (params.get('creada') ? 'Obligación desembolsada. Ya está en la cartera, en el panel y en contabilidad.' : ''))
   const tab = (params.get('tab') as Tab) || 'resumen'
   const cerrar = useCallback(() => setAccion(null), [])
   const listo = useCallback((msg: string) => { setAccion(null); setAviso(msg) }, [])
@@ -244,25 +245,6 @@ function ResumenGarantias({ d }: { d: Detalle }) {
         {g.reales.map((r) => <li key={r.id} className="flex items-center gap-2"><IconoGarantia tipo={r.tipo} />{r.tipo} · {dinero(r.valorAvaluo)}</li>)}
         {g.garantes.map((x) => <li key={x.id} className="flex items-center gap-2"><UserRound size={15} className="text-ink-3" aria-hidden="true" />Garante: {x.nombre}</li>)}
       </ul>
-    </div>
-  )
-}
-
-function BarraCobertura({ cobertura, minima, valor, cancelada }: { cobertura: number; minima: number; valor: number; cancelada: boolean }) {
-  if (cancelada) return <p className="text-ink-3">Garantías liberadas al cancelar la operación.</p>
-  const escala = Math.max(2, minima * 1.3, cobertura)
-  const cumple = minima === 0 || cobertura >= minima
-  return (
-    <div>
-      <div className="flex items-baseline justify-between">
-        <span className="text-ink-2">Cobertura sobre el saldo</span>
-        <span className={cx('tabular font-semibold', cumple ? 'text-ink' : 'text-bad')}>{porcentaje(cobertura)}</span>
-      </div>
-      <div className="relative mt-2 h-2 rounded-full bg-line" aria-hidden="true">
-        <div className={cx('h-full rounded-full', cumple ? 'bg-rose' : 'bg-bad')} style={{ width: `${Math.min(1, cobertura / escala) * 100}%` }} />
-        {minima > 0 && <span className="absolute -top-1 h-4 w-px bg-ink" style={{ left: `${(minima / escala) * 100}%` }} />}
-      </div>
-      <p className="mt-1.5 text-[0.75rem] text-ink-3">{dinero(valor)} en garantías reales{minima > 0 ? ` · mínimo del producto ${porcentaje(minima)}` : ''}</p>
     </div>
   )
 }

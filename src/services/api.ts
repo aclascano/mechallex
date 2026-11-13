@@ -7,9 +7,10 @@ import { distribuirPago, estadoOperacion, TASA_MORA_DIARIA, TRAMOS } from '../do
 import { addDays, addMonths, endOfMonth, monthKey, startOfMonth, type ISODate } from '../domain/fechas'
 import { diferencias, normalizar } from '../domain/clientes'
 import { COBERTURA_MINIMA, saldosOperacion, tablaDevengo } from '../domain/operacion'
+import { costos, primerVencimiento, tablaObligacion, validarPaso, PASOS_OBLIGACION, type DatosObligacion, type ProductoCredito } from '../domain/obligacion'
 import type { CambioCliente, Cliente, DatosCliente, EstadoOperacion, GarantiasOperacion, MedioPago, Operacion, Pago, Promesa, Tramo } from '../domain/tipos'
 import { dinero } from '../lib/formato'
-import { CIUDADES, GESTORES, HOY, MEDIOS, USUARIA_DEMO } from '../mocks/catalogos'
+import { CIUDADES, CONDICIONES_PRODUCTO, GESTORES, HOY, MEDIOS, PRODUCTOS, USUARIA_DEMO } from '../mocks/catalogos'
 import { ACTIVIDADES, PROVINCIA_DE, RELACIONES } from '../mocks/fichas'
 import { db, notificar } from '../mocks/db'
 import { asientoDePago } from '../mocks/generar'
@@ -321,6 +322,77 @@ function fechasDePago(op: Operacion): (ISODate | null)[] {
 }
 
 export const mediosPago = MEDIOS
+export const usuariaActual = USUARIA_DEMO
+
+// ── Nueva obligación ────────────────────────────────────────────────────────
+export const catalogoProductos: ProductoCredito[] = PRODUCTOS.map((p) => ({ ...p, ...CONDICIONES_PRODUCTO[p.id] }))
+
+/** Deudor con su exposición actual y, si corresponde, por qué no se le puede prestar. */
+export function datosDeudor(clienteId: string) {
+  const cliente = db.clientes.find((c) => c.id === clienteId)
+  if (!cliente) return null
+  const ops = todasLasOperaciones().filter((o) => o.clienteId === clienteId && !o.cancelada)
+  const peorMora = ops.reduce((m, o) => Math.max(m, o.diasMora), 0)
+  const exposicion = {
+    saldo: round2(ops.reduce((s, o) => s + o.saldoCapital, 0)),
+    peorMora,
+    cuotasVigentes: round2(ops.reduce((s, o) => s + (o.proximaCuota?.valor ?? 0), 0)),
+    operaciones: ops.length,
+  }
+  let bloqueo: string | null = null
+  if (cliente.estado === 'Inactivo') bloqueo = 'El cliente está inactivo. Reactívalo desde su ficha para otorgarle crédito.'
+  else if (peorMora > 30) bloqueo = `Tiene una operación con ${peorMora} días de mora. No se otorga crédito con mora mayor a 30 días.`
+  else if (db.juicios.some((j) => j.clienteId === clienteId)) bloqueo = 'Tiene una causa judicial abierta.'
+  return { cliente, exposicion, bloqueo }
+}
+
+export async function crearObligacion(d: DatosObligacion) {
+  const p = catalogoProductos.find((x) => x.id === d.producto)!
+  const deudor = datosDeudor(d.clienteId)
+  if (!deudor) throw new Error('Deudor no encontrado.')
+  for (const paso of PASOS_OBLIGACION) {
+    const e = validarPaso(paso.id, d, p, { cliente: deudor.cliente, bloqueoDeudor: deudor.bloqueo })
+    const primero = Object.values(e)[0]
+    if (primero) throw new Error(`${paso.titulo}: ${primero}`)
+  }
+  const correlativo = Math.max(...db.operaciones.map((o) => Number(o.id.slice(-4)))) + 1
+  const c = costos(d, p)
+  const op: Operacion = {
+    id: `OP-${HOY.slice(0, 4)}-${String(correlativo).padStart(4, '0')}`,
+    clienteId: d.clienteId,
+    producto: d.producto,
+    origen: 'Propia',
+    monto: d.monto,
+    tasaAnual: d.tasaAnual,
+    plazoMeses: d.plazoMeses,
+    sistema: d.sistema,
+    fechaDesembolso: HOY,
+    primerVencimiento: primerVencimiento(HOY, d.diaPago),
+    graciaMeses: d.graciaMeses,
+    tabla: tablaObligacion(d, HOY),
+    originacion: { ...c, medio: d.medio, cuentaDestino: d.cuentaDestino, aprobadaPor: USUARIA_DEMO.nombre, observacion: d.observacion },
+  }
+  db.operaciones.push(op)
+  let nG = db.garantias.flatMap((g) => g.garantes).length + 1
+  let nR = db.garantias.flatMap((g) => g.reales).length + 1
+  db.garantias.push({
+    operacionId: op.id,
+    garantes: d.garantes.map((g) => ({ ...g, id: `GA-${nG++}` })),
+    reales: d.reales.map((r) => ({ ...r, id: `GR-${nR++}`, estado: r.tipo === 'Hipoteca' ? 'En trámite' : 'Constituida' })),
+  })
+  const lineas = [
+    { cuenta: '1.4.01', debe: op.monto, haber: 0 },
+    { cuenta: '1.1.01', debe: 0, haber: c.neto },
+    { cuenta: '4.1.03', debe: 0, haber: c.comision },
+    { cuenta: '2.1.01', debe: 0, haber: c.seguro },
+  ].filter((l) => l.debe > 0 || l.haber > 0)
+  db.asientos.push({
+    id: `AS-${String(db.asientos.length + 1).padStart(5, '0')}`, fecha: HOY, glosa: `Desembolso ${op.producto.toLowerCase()} ${op.id}`,
+    origen: 'Desembolso', referencia: op.id, lineas,
+  })
+  notificar()
+  return esperar(op)
+}
 
 function garantiasDe(opId: string, saldo: number) {
   const g = db.garantias.find((x) => x.operacionId === opId) ?? { operacionId: opId, garantes: [], reales: [] }
@@ -401,7 +473,7 @@ export function simularAbono(operacionId: string, monto: number, modo: ModoRecal
   else if (!(monto > 0)) bloqueo = 'Escribe un monto mayor que cero.'
   else if (monto > maximo) bloqueo = `El abono no puede superar ${dinero(maximo)}. Para pagar todo, usa la precancelación.`
   if (bloqueo || !siguiente) return { bloqueo, maximo }
-  const params = { monto: op.monto, tasaAnual: op.tasaAnual, plazoMeses: op.tabla.length, sistema: op.sistema, fechaDesembolso: op.fechaDesembolso }
+  const params = { monto: op.monto, tasaAnual: op.tasaAnual, plazoMeses: op.tabla.length, sistema: op.sistema, fechaDesembolso: op.fechaDesembolso, primerVencimiento: op.primerVencimiento, graciaMeses: op.graciaMeses }
   const tabla = recalcular(params, op.tabla, despuesDe, monto, modo)
   const antes = op.tabla.slice(despuesDe)
   const despues = tabla.slice(despuesDe)

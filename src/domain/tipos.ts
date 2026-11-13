@@ -98,6 +98,10 @@ export interface Operacion {
   tabla: Cuota[]
   /** Abonos extraordinarios a capital que recalcularon la tabla. */
   recalculos?: Recalculo[]
+  primerVencimiento?: ISODate
+  graciaMeses?: number
+  /** Datos de originación cuando la operación se creó en la demo. */
+  originacion?: { comision: number; seguro: number; neto: number; medio: string; cuentaDestino: string; aprobadaPor: string; observacion: string }
 }
 
 export interface Recalculo {

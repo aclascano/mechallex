@@ -22,7 +22,8 @@ Stack: Vite + React + TypeScript + Tailwind CSS v4 + Recharts, React Router (Has
 | `#/` | Panel | Saldo, morosidad, recuperado vs. exigible, cartera por antigüedad (roseta guilloché), promesas, juicios, campañas y dónde actuar hoy. |
 | `#/clientes` | Clientes | Listado con filtros; alta y edición en seis pasos (identificación con validación de cédula/RUC, contacto, actividad económica y capacidad de pago, referencias y cónyuge, canales autorizados y gestor); ficha con pestañas y historial de cambios. Los clientes no se borran: se inactivan, y solo si no tienen operaciones vigentes ni juicios. |
 | `#/operaciones` | Operaciones | Cartera con filtros (antigüedad, producto, origen, etapa, gestor, estado) y orden. El detalle tiene pestañas: resumen con saldos a la fecha (para ponerse al día y para cancelar hoy), tabla de amortización con fecha y atraso de cada pago, **tabla devengada**, garantías y cobertura, pagos, **estado de cuenta** imprimible, cobranza y documentos. Acciones: registrar pago, abono a capital con recálculo y precancelación. |
-| `#/amortizacion` | Amortización | Simulador francés / alemán, comparación de cuotas y recálculo con abono extraordinario (bajar cuota o acortar plazo). |
+| `#/obligaciones/nueva` | Nueva obligación | Originación en seis pasos: deudor (o alta de cliente sin salir del flujo), producto y condiciones (tasa con techo, día de pago, gracia, seguro), garantes y garantías con cobertura mínima, tabla con comparación francés/alemán, aprobación con capacidad de pago y alertas, y desembolso con su asiento contable. |
+| `#/amortizacion` | Simulador | Simulación rápida francés / alemán sin crear nada. |
 | `#/pagos` | Pagos y abonos | Historial filtrable y registro de pagos con vista previa del efecto en el saldo. |
 | `#/cobranza` | Cobranza automatizada | Campañas (llamada, SMS, WhatsApp, correo), reglas por días de mora, promesas y la pantalla de integración con **n8n** (solo interfaz). |
 | `#/juicios` | Juicios | Tablero kanban por etapa procesal, lista, expediente con actuaciones y costas. |
@@ -40,6 +41,7 @@ Los datos no son números sueltos: se **generan** a partir de reglas, con una se
 - Un abono a capital recalcula las cuotas futuras (bajar cuota o acortar plazo). La precancelación cobra capital, interés devengado hasta hoy y recargo, y libera las garantías.
 - Los juicios nacen de las operaciones con más de 120 días de mora; sus costas generan asientos de gasto.
 - Cada desembolso, pago y costa genera su asiento contable. La cuenta *1.4.01 Cartera de créditos* cuadra al centavo con la suma de saldos de las operaciones (lo verás en **Contabilidad → Balance y cuadre**).
+- Al desembolsar una nueva obligación se crean la operación, su tabla, sus garantías y el asiento (cartera al debe; bancos, comisión y seguro al haber). Aparece de inmediato en Operaciones, Panel y Contabilidad.
 - Si creas o editas un cliente, el cambio queda en su historial con usuario, fecha y hora.
 - Si registras un pago en la demo, baja el saldo de la operación, del cliente y del panel, sube lo recuperado del mes y aparece su asiento. Esto vive en memoria: al recargar la página se vuelve a los datos iniciales.
 
@@ -66,6 +68,7 @@ Las pantallas **nunca** importan de `src/mocks`: solo llaman funciones asíncron
 - **Más o menos mora:** el reparto de perfiles (`puntual`, `atrasado`, `irregular`) y la lista `ATRASOS` (meses sin pagar) en `src/mocks/generar.ts`.
 - **Otro conjunto aleatorio:** cambia la semilla en `crearRng(20261113)`.
 - **Garantes y garantías:** `src/mocks/garantias.ts`; la cobertura mínima por producto está en `COBERTURA_MINIMA` (`src/domain/operacion.ts`).
+- **Condiciones de producto para nuevas obligaciones** (comisión, seguro, gracia máxima): `CONDICIONES_PRODUCTO` en `src/mocks/catalogos.ts`; rangos de tasa, plazo y monto en `PRODUCTOS`.
 - **Campañas, reglas, flujos n8n y plan de cuentas:** `src/mocks/cobranza.ts`.
 - **Fecha de corte:** `HOY` en `src/mocks/catalogos.ts`.
 

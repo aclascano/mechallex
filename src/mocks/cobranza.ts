@@ -86,8 +86,10 @@ export const FLUJOS_N8N: FlujoN8n[] = [
 export const PLAN_CUENTAS: Cuenta[] = [
   { codigo: '1.1.01', nombre: 'Bancos', naturaleza: 'Deudora', tipo: 'Activo' },
   { codigo: '1.4.01', nombre: 'Cartera de créditos', naturaleza: 'Deudora', tipo: 'Activo' },
+  { codigo: '2.1.01', nombre: 'Primas de seguro por pagar', naturaleza: 'Acreedora', tipo: 'Pasivo' },
   { codigo: '3.1.01', nombre: 'Capital social', naturaleza: 'Acreedora', tipo: 'Patrimonio' },
   { codigo: '4.1.01', nombre: 'Intereses ganados', naturaleza: 'Acreedora', tipo: 'Ingreso' },
   { codigo: '4.1.02', nombre: 'Intereses de mora', naturaleza: 'Acreedora', tipo: 'Ingreso' },
+  { codigo: '4.1.03', nombre: 'Comisiones por apertura', naturaleza: 'Acreedora', tipo: 'Ingreso' },
   { codigo: '5.1.01', nombre: 'Gastos judiciales', naturaleza: 'Deudora', tipo: 'Gasto' },
 ]

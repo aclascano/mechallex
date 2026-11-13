@@ -40,6 +40,14 @@ export const PRODUCTOS = [
   { id: 'Comercial', tasa: [11.2, 12.8], plazo: [18, 48], monto: [8000, 40000] },
 ] as const
 
+/** Condiciones comerciales de cada producto para nuevas obligaciones (valores de la demo). */
+export const CONDICIONES_PRODUCTO = {
+  Consumo: { descripcion: 'Necesidades personales y familiares', comision: 0.01, seguroAnual: 0.004, seguroObligatorio: true, graciaMax: 0 },
+  Microcrédito: { descripcion: 'Capital de trabajo para pequeños negocios', comision: 0.02, seguroAnual: 0.004, seguroObligatorio: false, graciaMax: 3 },
+  Vivienda: { descripcion: 'Compra, construcción o mejora de vivienda', comision: 0.005, seguroAnual: 0.003, seguroObligatorio: true, graciaMax: 6 },
+  Comercial: { descripcion: 'Empresas: activos fijos y capital de trabajo', comision: 0.01, seguroAnual: 0, seguroObligatorio: false, graciaMax: 6 },
+} as const
+
 /** Generador pseudoaleatorio con semilla: los mismos datos en cada carga. */
 export function crearRng(seed: number) {
   let a = seed >>> 0
