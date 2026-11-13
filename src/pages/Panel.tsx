@@ -334,7 +334,7 @@ export default function PaginaPanel() {
         acciones={
           <>
             <Link to="/operaciones?mora=1" className="inline-flex h-9 items-center rounded-[9px] border border-line-strong bg-panel px-3.5 text-[0.85rem] font-medium hover:bg-panel-2">Cartera en mora</Link>
-            <Link to="/pagos?nuevo=1" className="inline-flex h-9 items-center rounded-[9px] bg-rail px-3.5 text-[0.85rem] font-medium text-rail-ink hover:bg-rail-2 dark:bg-rose dark:text-[oklch(0.15_0.01_290)]">Registrar pago</Link>
+            <Link to="/pagos" className="inline-flex h-9 items-center rounded-[9px] bg-rail px-3.5 text-[0.85rem] font-medium text-rail-ink hover:bg-rail-2 dark:bg-rose dark:text-[oklch(0.15_0.01_290)]">Registrar pago</Link>
           </>
         }
       />

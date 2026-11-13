@@ -2,6 +2,7 @@ import { ArrowLeft, Building2, FilePlus2, Mail, MapPin, Pencil, Phone, Power, Us
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { Aviso, Boton, Dato, Encabezado, EsqueletoPagina, Insignia, InsigniaTramo, Panel, Pestanas, RecorridoCobranza, Tabla, Td, Th, Vacio } from '../components/ui'
+import { ComportamientoPago } from '../components/ComportamientoPago'
 import { CANALES, capacidadPago } from '../domain/clientes'
 import { diffDays, fmtFecha } from '../domain/fechas'
 import type { CambioCliente, Cliente } from '../domain/tipos'
@@ -98,6 +99,7 @@ export default function PaginaCliente() {
 
       {tab === 'resumen' && (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
+          <div className="xl:col-span-2"><ComportamientoPago d={d.comportamiento} /></div>
           <Contacto c={c} />
           <div className="min-w-0 space-y-4">
             <TablaOperaciones ops={d.operaciones} />

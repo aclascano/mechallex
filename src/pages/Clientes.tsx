@@ -2,6 +2,7 @@ import { Plus, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { Campo, Encabezado, Entrada, EsqueletoPagina, Insignia, InsigniaTramo, Panel, Selector, Tabla, Td, Th, Vacio } from '../components/ui'
+import { EstadisticasClientes } from '../components/EstadisticasClientes'
 import { cx, dinero, entero } from '../lib/formato'
 import { useServicio } from '../lib/useServicio'
 import { catalogosCliente, fechaCorte, listarClientes } from '../services/api'
@@ -44,6 +45,7 @@ export default function PaginaClientes() {
           </Link>
         }
       />
+      <EstadisticasClientes />
       <Panel cuerpo="">
         <div className="grid gap-3 border-b border-line p-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-[minmax(0,2fr)_repeat(5,minmax(0,1fr))]">
           <Campo etiqueta="Buscar">

@@ -3,10 +3,10 @@
  * Hoy leen de `src/mocks/db.ts`; mañana pueden llamar a una API con fetch sin tocar las pantallas.
  */
 import { recalcular, round2, type ModoRecalculo } from '../domain/amortizacion'
-import { distribuirPago, estadoOperacion, TASA_MORA_DIARIA, TRAMOS } from '../domain/cartera'
-import { addDays, addMonths, endOfMonth, monthKey, startOfMonth, type ISODate } from '../domain/fechas'
+import { distribuirPago, estadoOperacion, TASA_MORA_DIARIA, tramoDe, TRAMOS } from '../domain/cartera'
+import { addDays, addMonths, diffDays, endOfMonth, fmtMes, monthKey, startOfMonth, type ISODate } from '../domain/fechas'
 import { diferencias, normalizar } from '../domain/clientes'
-import { COBERTURA_MINIMA, saldosOperacion, tablaDevengo } from '../domain/operacion'
+import { COBERTURA_MINIMA, detallePago, saldosOperacion, tablaDevengo, valorCuotas } from '../domain/operacion'
 import { costos, primerVencimiento, tablaObligacion, validarPaso, PASOS_OBLIGACION, type DatosObligacion, type ProductoCredito } from '../domain/obligacion'
 import type { CambioCliente, Cliente, DatosCliente, EstadoOperacion, GarantiasOperacion, MedioPago, Operacion, Pago, Promesa, Tramo } from '../domain/tipos'
 import { dinero } from '../lib/formato'
@@ -151,7 +151,100 @@ export async function obtenerCliente(id: string) {
   const promesas = db.promesas.filter((p) => p.clienteId === id).map((p) => ({ ...p, estado: estadoPromesa(p) }))
   const juicios = db.juicios.filter((j) => j.clienteId === id)
   const historial = db.historial.filter((h) => h.clienteId === id).sort((a, b) => b.fecha.localeCompare(a.fecha) || Number(b.id.slice(3)) - Number(a.id.slice(3)))
-  return esperar({ cliente, operaciones, pagos, promesas, juicios, historial, garantiasPrestadas: garantiasPrestadas(id) })
+  return esperar({ cliente, operaciones, pagos, promesas, juicios, historial, garantiasPrestadas: garantiasPrestadas(id), comportamiento: comportamientoCliente(id) })
+}
+
+// ── Estadísticas de clientes ───────────────────────────────────────────────
+const TOLERANCIA_DIAS = 3
+
+/** Comportamiento de pago: cuántas cuotas vencidas pagó a tiempo, con atraso o no pagó. */
+export function comportamientoCliente(clienteId: string) {
+  const ops = db.operaciones.filter((o) => o.clienteId === clienteId && o.fechaDesembolso <= HOY)
+  const cuotas: { fecha: ISODate; op: string; n: number; dias: number; pagada: boolean }[] = []
+  ops.forEach((op) => {
+    const fechas = fechasDePago(op)
+    op.tabla.forEach((c, i) => {
+      if (c.fecha > HOY) return
+      const f = fechas[i]
+      cuotas.push({ fecha: c.fecha, op: op.id, n: c.n, dias: f ? Math.max(0, diffDays(f, c.fecha)) : diffDays(HOY, c.fecha), pagada: !!f })
+    })
+  })
+  cuotas.sort((a, b) => a.fecha.localeCompare(b.fecha))
+  const pagadas = cuotas.filter((c) => c.pagada)
+  const aTiempo = pagadas.filter((c) => c.dias <= TOLERANCIA_DIAS).length
+  const impagas = cuotas.length - pagadas.length
+  const puntualidad = cuotas.length ? aTiempo / cuotas.length : 1
+  const atrasoPromedio = pagadas.length ? pagadas.reduce((s, c) => s + c.dias, 0) / pagadas.length : 0
+  const atrasoMax = cuotas.reduce((m, c) => Math.max(m, c.dias), 0)
+  const moraActual = todasLasOperaciones().filter((o) => o.clienteId === clienteId && !o.cancelada).reduce((m, o) => Math.max(m, o.diasMora), 0)
+  const pagos = db.pagos.filter((p) => p.clienteId === clienteId)
+  const porMedio = new Map<string, number>()
+  pagos.forEach((p) => porMedio.set(p.medio, (porMedio.get(p.medio) ?? 0) + 1))
+  const calificacion = moraActual > 120 ? 'E' : moraActual > 60 ? 'D' : puntualidad >= 0.95 && moraActual === 0 ? 'A' : puntualidad >= 0.85 && moraActual <= 30 ? 'B' : 'C'
+  return {
+    cuotasVencidas: cuotas.length,
+    aTiempo,
+    conAtraso: pagadas.length - aTiempo,
+    impagas,
+    puntualidad,
+    atrasoPromedio,
+    atrasoMax,
+    moraActual,
+    calificacion,
+    totalPagado: round2(pagos.reduce((s, p) => s + p.monto, 0)),
+    interesPagado: round2(pagos.reduce((s, p) => s + p.interes, 0)),
+    moraPagada: round2(pagos.reduce((s, p) => s + p.mora, 0)),
+    pagos: pagos.length,
+    porMedio: [...porMedio.entries()].map(([medio, n]) => ({ medio, n })).sort((a, b) => b.n - a.n),
+    serie: cuotas.slice(-24).map((c) => ({ ...c, etiqueta: fmtMes(c.fecha, true) })),
+  }
+}
+
+export async function estadisticasClientes() {
+  const ops = todasLasOperaciones()
+  const anioActual = HOY.slice(0, 4)
+  const mesActual = monthKey(HOY)
+  const filas = db.clientes.map((c) => {
+    const propias = ops.filter((o) => o.clienteId === c.id && !o.cancelada)
+    const peor = propias.reduce((m, o) => Math.max(m, o.diasMora), 0)
+    return { c, saldo: propias.reduce((s, o) => s + o.saldoCapital, 0), conDeuda: propias.length > 0, peor, tramo: tramoDe(peor) }
+  })
+  const activos = filas.filter((f) => f.c.estado === 'Activo')
+  const conDeuda = activos.filter((f) => f.conDeuda)
+  const enMora = conDeuda.filter((f) => f.peor > 0)
+  const contar = <K extends string>(clave: (f: (typeof filas)[number]) => K) => {
+    const m = new Map<K, { n: number; saldo: number; mora: number }>()
+    activos.forEach((f) => {
+      const k = clave(f)
+      const v = m.get(k) ?? { n: 0, saldo: 0, mora: 0 }
+      v.n++
+      v.saldo += f.saldo
+      if (f.peor > 0) v.mora++
+      m.set(k, v)
+    })
+    return [...m.entries()].map(([k, v]) => ({ clave: k, n: v.n, saldo: round2(v.saldo), mora: v.mora })).sort((a, b) => b.n - a.n)
+  }
+  const edad = (f: ISODate) => Math.floor(diffDays(HOY, f) / 365.25)
+  const naturales = activos.filter((f) => f.c.tipoPersona === 'Natural' && f.c.fechaNacimiento)
+  const rangosEdad = [['18–29', 18, 29], ['30–44', 30, 44], ['45–59', 45, 59], ['60 o más', 60, 200]] as const
+  return esperar({
+    total: filas.length,
+    activos: activos.length,
+    inactivos: filas.length - activos.length,
+    juridicas: activos.filter((f) => f.c.tipoPersona === 'Jurídica').length,
+    nuevosAnio: filas.filter((f) => f.c.clienteDesde.startsWith(anioActual)).length,
+    nuevosMes: filas.filter((f) => monthKey(f.c.clienteDesde) === mesActual).length,
+    conDeuda: conDeuda.length,
+    enMora: enMora.length,
+    saldoPromedio: conDeuda.length ? round2(conDeuda.reduce((s, f) => s + f.saldo, 0) / conDeuda.length) : 0,
+    ingresoPromedio: activos.length ? round2(activos.reduce((s, f) => s + f.c.ingresos, 0) / activos.length) : 0,
+    porTramo: TRAMOS.map((t) => ({ ...t, n: conDeuda.filter((f) => f.tramo === t.id).length })),
+    porSegmento: contar((f) => f.c.segmento),
+    porCiudad: contar((f) => f.c.ciudad).slice(0, 6),
+    porGestor: contar((f) => f.c.gestor),
+    porEdad: rangosEdad.map(([label, a, b]) => ({ label, n: naturales.filter((f) => edad(f.c.fechaNacimiento as ISODate) >= a && edad(f.c.fechaNacimiento as ISODate) <= b).length })),
+    altasPorAnio: [...new Set(filas.map((f) => f.c.clienteDesde.slice(0, 4)))].sort().map((anio) => ({ anio, n: filas.filter((f) => f.c.clienteDesde.startsWith(anio)).length })),
+  })
 }
 
 /** Listas para formularios y filtros. */
@@ -527,7 +620,7 @@ export function previsualizarPago(operacionId: string, monto: number, fecha: ISO
   return { antes, despues, mora: moraCobrada, interes, capital, aplicado: simulado.monto, excedente: round2(monto - simulado.monto) }
 }
 
-export async function registrarPago(input: { operacionId: string; monto: number; medio: MedioPago }) {
+export async function registrarPago(input: { operacionId: string; monto: number; medio: MedioPago; referencia?: string }) {
   const prev = previsualizarPago(input.operacionId, input.monto)
   const op = db.operaciones.find((o) => o.id === input.operacionId)!
   const pago: Pago = {
@@ -541,14 +634,92 @@ export async function registrarPago(input: { operacionId: string; monto: number;
     capital: prev.capital,
     medio: input.medio,
     tipo: prev.despues.valorVencido > 0 && prev.antes.valorVencido > 0 ? 'Abono parcial' : 'Cuota',
-    referencia: `DEMO-${Date.now().toString().slice(-6)}`,
+    referencia: input.referencia?.trim() || referenciaDemo(),
     conciliado: false,
     registradoEnDemo: true,
   }
   db.pagos.push(pago)
   db.asientos.push({ ...asientoDePago(pago, db.asientos.length + 1) })
   notificar()
-  return esperar(pago)
+  return esperar(comprobante(pago, true))
+}
+
+/** Datos del comprobante de un pago: quién pagó, cómo se aplicó y cómo quedó la operación. */
+export function comprobante(pago: Pago, conHora = false) {
+  const op = db.operaciones.find((o) => o.id === pago.operacionId)!
+  const cliente = db.clientes.find((c) => c.id === pago.clienteId)!
+  const despues = estadoOperacion(op, pagosDe(op.id).filter((p) => p.fecha < pago.fecha || (p.fecha === pago.fecha && p.id <= pago.id)), pago.fecha)
+  const hora = conHora ? ` · ${new Date().toTimeString().slice(0, 5)}` : ''
+  return { pago, cliente, operacion: { id: op.id, producto: op.producto }, saldoDespues: despues.saldoCapital, proximaCuota: despues.proximaCuota, cancelada: despues.cancelada, emitido: `${fmtFechaISO(pago.fecha)}${hora}`, cajero: USUARIA_DEMO.nombre }
+}
+const fmtFechaISO = (f: ISODate) => f.split('-').reverse().join('/')
+
+// ── Presimulación y búsqueda de pagos ──────────────────────────────────────
+/** Operaciones vigentes que coinciden con un cliente, cédula u operación. */
+export function buscarOperacionesParaPago(texto: string) {
+  const t = texto.trim().toLowerCase()
+  if (t.length < 2) return []
+  return todasLasOperaciones()
+    .filter((o) => !o.cancelada && (o.id.toLowerCase().includes(t) || o.cliente.nombre.toLowerCase().includes(t) || o.cliente.cedula.includes(t)))
+    .sort((a, b) => a.cliente.nombre.localeCompare(b.cliente.nombre))
+    .slice(0, 8)
+}
+
+export function resumenParaPago(operacionId: string) {
+  const op = db.operaciones.find((o) => o.id === operacionId)!
+  const v = vistaOperacion(op)
+  const s = saldosOperacion(op, v, HOY)
+  const pendientes = op.tabla.filter((c, i) => c.cuota - (v.aplicadoPorCuota[i] ?? 0) > 0.005).length
+  return { operacion: v, saldos: s, pendientes, valorCuotas: (n: number) => valorCuotas(op, v, n) }
+}
+
+/** Presimulación: cómo se aplicaría el monto sin registrar nada. */
+export function presimularPago(operacionId: string, monto: number) {
+  const op = db.operaciones.find((o) => o.id === operacionId)!
+  const prev = previsualizarPago(operacionId, monto)
+  const detalle = detallePago(op, prev.antes, round2(prev.interes + prev.capital), HOY)
+  return { ...prev, detalle, cuotasCubiertas: detalle.filter((f) => f.queda === 'Cubierta').length }
+}
+
+export interface CriterioPagos {
+  por: 'cliente' | 'operacion' | 'referencia' | 'fecha'
+  texto: string
+  desde: ISODate
+  hasta: ISODate
+  medio: string
+  tipo: string
+}
+
+const LIMITE_BUSQUEDA = 200
+
+export async function buscarPagos(c: CriterioPagos) {
+  const t = c.texto.trim().toLowerCase()
+  const encontrados = db.pagos
+    .filter((p) => {
+      if (c.por === 'operacion') return p.operacionId.toLowerCase().includes(t)
+      if (c.por === 'referencia') return p.referencia.toLowerCase().includes(t) || p.id.toLowerCase().includes(t)
+      if (c.por === 'cliente') {
+        const cli = db.clientes.find((x) => x.id === p.clienteId)!
+        return cli.nombre.toLowerCase().includes(t) || cli.cedula.includes(t)
+      }
+      return true
+    })
+    .filter((p) => (!c.desde || p.fecha >= c.desde) && (!c.hasta || p.fecha <= c.hasta))
+    .filter((p) => !c.medio || p.medio === c.medio)
+    .filter((p) => !c.tipo || p.tipo === c.tipo)
+    .sort((a, b) => b.fecha.localeCompare(a.fecha) || b.id.localeCompare(a.id))
+  const suma = (k: 'monto' | 'capital' | 'interes' | 'mora') => round2(encontrados.reduce((s, p) => s + p[k], 0))
+  return esperar({
+    total: encontrados.length,
+    limite: LIMITE_BUSQUEDA,
+    sumas: { monto: suma('monto'), capital: suma('capital'), interes: suma('interes'), mora: suma('mora') },
+    filas: encontrados.slice(0, LIMITE_BUSQUEDA).map((p) => ({ ...p, cliente: db.clientes.find((x) => x.id === p.clienteId)! })),
+  })
+}
+
+export function comprobanteDe(pagoId: string) {
+  const p = db.pagos.find((x) => x.id === pagoId)
+  return p ? comprobante(p) : null
 }
 
 // ── Juicios ─────────────────────────────────────────────────────────────────

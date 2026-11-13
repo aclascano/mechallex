@@ -228,3 +228,10 @@
   :root, .dark { color-scheme: light; }
   body { background: white !important; }
 }
+
+/* Si hay un comprobante en pantalla, se imprime solo él. */
+@media print {
+  body:has([data-imprimir]) * { visibility: hidden; }
+  [data-imprimir], [data-imprimir] * { visibility: visible; }
+  [data-imprimir] { position: absolute; inset: 0 auto auto 0; width: 100%; }
+}

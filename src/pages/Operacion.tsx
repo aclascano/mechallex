@@ -13,7 +13,7 @@ import { diffDays, fmtFecha, fmtFechaLarga } from '../domain/fechas'
 import type { TipoGarantia } from '../domain/tipos'
 import { cx, dinero, plural, porcentaje } from '../lib/formato'
 import { useServicio } from '../lib/useServicio'
-import { fechaCorte, listarOperaciones, obtenerOperacion } from '../services/api'
+import { fechaCorte, obtenerOperacion } from '../services/api'
 
 type Tab = 'resumen' | 'tabla' | 'devengo' | 'garantias' | 'pagos' | 'cuenta' | 'cobranza' | 'documentos'
 type Accion = 'pago' | 'abono' | 'precancelar' | null
@@ -95,7 +95,7 @@ export default function PaginaOperacion() {
       {tab === 'documentos' && <Documentos d={d} />}
 
       {accion === 'pago' && (
-        <Dialogo titulo="Registrar pago" descripcion={`${d.id} · ${d.cliente.nombre}`} onCerrar={cerrar}>
+        <Dialogo titulo="Registrar pago" descripcion={`${d.id} · ${d.cliente.nombre}`} onCerrar={cerrar} ancho="max-w-2xl">
           <PagoDialogo opId={d.id} />
         </Dialogo>
       )}
@@ -114,8 +114,7 @@ export default function PaginaOperacion() {
 }
 
 function PagoDialogo({ opId }: { opId: string }) {
-  const { data: todas } = useServicio(listarOperaciones)
-  return todas ? <RegistroPago operaciones={todas} operacionInicial={opId} /> : <p className="text-ink-3">Cargando…</p>
+  return <RegistroPago operacionFija={opId} compacto />
 }
 
 // ── Resumen ─────────────────────────────────────────────────────────────────

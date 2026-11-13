@@ -116,3 +116,52 @@ export function tablaDevengo(op: Operacion, est: EstadoOperacion, corte: ISODate
 
 /** Fecha desde la cual se suspende el devengo: primera cuota impaga + días de suspensión. */
 const addDiasSuspension = (est: EstadoOperacion, corte: ISODate): ISODate => addDays(corte, DIAS_SUSPENSION_DEVENGO - est.diasMora)
+
+export interface FilaPago {
+  n: number
+  fecha: ISODate
+  diasAtraso: number
+  pendienteAntes: number
+  interes: number
+  capital: number
+  pendienteDespues: number
+  queda: 'Cubierta' | 'Parcial'
+}
+
+/**
+ * Detalle de cómo un monto neto (sin recargo) cubre las cuotas pendientes, en orden:
+ * primero el interés y luego el capital de cada cuota.
+ */
+export function detallePago(op: Operacion, est: EstadoOperacion, montoNeto: number, corte: ISODate): FilaPago[] {
+  let restante = round2(montoNeto)
+  const filas: FilaPago[] = []
+  op.tabla.forEach((c, i) => {
+    if (restante <= 0) return
+    const aplicado = est.aplicadoPorCuota[i] ?? 0
+    const pendiente = round2(c.cuota - aplicado)
+    if (pendiente <= 0.005) return
+    const pendInteres = round2(Math.max(0, c.interes - aplicado))
+    const ai = round2(Math.min(restante, pendInteres))
+    restante = round2(restante - ai)
+    const pendCapital = round2(pendiente - pendInteres)
+    const ac = round2(Math.min(restante, pendCapital))
+    restante = round2(restante - ac)
+    const despues = round2(pendiente - ai - ac)
+    filas.push({ n: c.n, fecha: c.fecha, diasAtraso: Math.max(0, diffDays(corte, c.fecha)), pendienteAntes: pendiente, interes: ai, capital: ac, pendienteDespues: despues, queda: despues <= 0.005 ? 'Cubierta' : 'Parcial' })
+  })
+  return filas
+}
+
+/** Valor para pagar las próximas `n` cuotas pendientes (sin recargo). */
+export function valorCuotas(op: Operacion, est: EstadoOperacion, n: number): number {
+  let suma = 0
+  let k = 0
+  op.tabla.forEach((c, i) => {
+    const pendiente = round2(c.cuota - (est.aplicadoPorCuota[i] ?? 0))
+    if (pendiente > 0.005 && k < n) {
+      suma += pendiente
+      k++
+    }
+  })
+  return round2(suma)
+}

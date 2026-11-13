@@ -77,6 +77,15 @@ export function enriquecerCliente(b: ClienteBase): Cliente {
   }
 }
 
+/** El cliente se registra poco antes de su primer crédito: así las altas se reparten en el tiempo. */
+export function ajustarAltas(clientes: Cliente[], ops: { clienteId: string; fechaDesembolso: string }[]) {
+  const ra = crearRng(9902)
+  clientes.forEach((c) => {
+    const primera = ops.filter((o) => o.clienteId === c.id).map((o) => o.fechaDesembolso).sort()[0]
+    if (primera) c.clienteDesde = addDays(primera, -ra.int(6, 75))
+  })
+}
+
 /** Historial inicial: alta de cada cliente y, en algunos, una actualización de ingresos. */
 export function generarHistorial(clientes: Cliente[]): CambioCliente[] {
   const h: CambioCliente[] = []
