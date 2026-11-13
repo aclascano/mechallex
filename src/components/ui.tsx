@@ -64,17 +64,26 @@ export function Boton({ variante = 'secundario', className, children, icono, ...
   )
 }
 
-export function Campo({ etiqueta, ayuda, children, className }: { etiqueta: string; ayuda?: ReactNode; children: ReactNode; className?: string }) {
+export function Campo({ etiqueta, ayuda, error, opcional, children, className }: {
+  etiqueta: string; ayuda?: ReactNode; error?: string; opcional?: boolean; children: ReactNode; className?: string
+}) {
   return (
-    <label className={cx('flex flex-col gap-1.5', className)}>
-      <span className="text-[0.8rem] font-medium text-ink-2">{etiqueta}</span>
+    <label className={cx('flex min-w-0 flex-col gap-1.5', className)}>
+      <span className="text-[0.8rem] font-medium text-ink-2">
+        {etiqueta}
+        {opcional && <span className="font-normal text-ink-3"> · opcional</span>}
+      </span>
       {children}
-      {ayuda && <span className="text-[0.75rem] text-ink-3">{ayuda}</span>}
+      {error ? (
+        <span role="alert" className="text-[0.75rem] font-medium text-bad">{error}</span>
+      ) : (
+        ayuda && <span className="text-[0.75rem] text-ink-3">{ayuda}</span>
+      )}
     </label>
   )
 }
 
-const control = 'h-9 w-full rounded-[9px] border border-line-strong bg-panel px-3 text-[0.875rem] text-ink placeholder:text-ink-3 transition-colors duration-150 hover:border-ink-3 focus-visible:border-rose focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose/30'
+const control = 'h-9 w-full rounded-[9px] border border-line-strong bg-panel px-3 text-[0.875rem] text-ink placeholder:text-ink-3 transition-colors duration-150 hover:border-ink-3 focus-visible:border-rose focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose/30 aria-[invalid=true]:border-bad aria-[invalid=true]:focus-visible:ring-bad/25'
 
 export function Entrada(props: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={cx(control, 'tabular', props.className)} />

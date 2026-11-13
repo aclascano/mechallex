@@ -330,7 +330,7 @@ export default function PaginaPanel() {
     <div style={{ animation: 'aparecer 300ms var(--ease-out-expo) both' }}>
       <Encabezado
         titulo="Panel de cartera"
-        descripcion={<>{ENTIDAD_DEMO.nombre} · {ENTIDAD_DEMO.nota.toLowerCase()}, cifras de demostración. Lo que cambió desde el cierre de octubre y dónde conviene actuar.</>}
+        descripcion={<>{ENTIDAD_DEMO.nombre}. Lo que cambió desde el cierre de octubre y dónde conviene actuar.</>}
         acciones={
           <>
             <Link to="/operaciones?mora=1" className="inline-flex h-9 items-center rounded-[9px] border border-line-strong bg-panel px-3.5 text-[0.85rem] font-medium hover:bg-panel-2">Cartera en mora</Link>

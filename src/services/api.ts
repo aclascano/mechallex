@@ -5,8 +5,10 @@
 import { round2 } from '../domain/amortizacion'
 import { distribuirPago, estadoOperacion, TASA_MORA_DIARIA, TRAMOS } from '../domain/cartera'
 import { addDays, addMonths, endOfMonth, monthKey, startOfMonth, type ISODate } from '../domain/fechas'
-import type { Cliente, EstadoOperacion, MedioPago, Operacion, Pago, Promesa, Tramo } from '../domain/tipos'
-import { HOY } from '../mocks/catalogos'
+import { diferencias, normalizar } from '../domain/clientes'
+import type { CambioCliente, Cliente, DatosCliente, EstadoOperacion, MedioPago, Operacion, Pago, Promesa, Tramo } from '../domain/tipos'
+import { CIUDADES, GESTORES, HOY, USUARIA_DEMO } from '../mocks/catalogos'
+import { ACTIVIDADES, PROVINCIA_DE, RELACIONES } from '../mocks/fichas'
 import { db, notificar } from '../mocks/db'
 import { asientoDePago } from '../mocks/generar'
 
@@ -145,7 +147,82 @@ export async function obtenerCliente(id: string) {
   const pagos = db.pagos.filter((p) => p.clienteId === id).slice().reverse()
   const promesas = db.promesas.filter((p) => p.clienteId === id).map((p) => ({ ...p, estado: estadoPromesa(p) }))
   const juicios = db.juicios.filter((j) => j.clienteId === id)
-  return esperar({ cliente, operaciones, pagos, promesas, juicios })
+  const historial = db.historial.filter((h) => h.clienteId === id).sort((a, b) => b.fecha.localeCompare(a.fecha) || Number(b.id.slice(3)) - Number(a.id.slice(3)))
+  return esperar({ cliente, operaciones, pagos, promesas, juicios, historial })
+}
+
+/** Listas para formularios y filtros. */
+export const catalogosCliente = {
+  ciudades: CIUDADES,
+  gestores: GESTORES,
+  actividades: ACTIVIDADES,
+  relaciones: RELACIONES,
+  provinciaDe: (ciudad: string) => PROVINCIA_DE[ciudad] ?? '',
+}
+
+/** ¿La identificación ya pertenece a otro cliente? */
+export function identificacionUsada(numero: string, exceptoId?: string) {
+  return db.clientes.some((c) => c.cedula === numero && c.id !== exceptoId)
+}
+
+export async function obtenerDatosCliente(id: string) {
+  const c = db.clientes.find((x) => x.id === id)
+  return esperar(c ? structuredClone(c) : null)
+}
+
+function ahora() {
+  const d = new Date()
+  return `${HOY}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function registrarCambio(c: Omit<CambioCliente, 'id' | 'fecha' | 'usuario'>) {
+  db.historial.push({ ...c, id: `HC-${db.historial.length + 1}`, fecha: ahora(), usuario: USUARIA_DEMO.nombre })
+}
+
+export async function crearCliente(datos: DatosCliente) {
+  const d = normalizar(datos)
+  if (identificacionUsada(d.cedula)) throw new Error('Ya existe un cliente con esta identificación.')
+  const id = `CL-${Math.max(...db.clientes.map((c) => Number(c.id.slice(3)))) + 1}`
+  const cliente: Cliente = { ...d, id, clienteDesde: HOY, estado: 'Activo' }
+  db.clientes.push(cliente)
+  registrarCambio({ clienteId: id, accion: 'Creación', cambios: [], nota: 'Alta del cliente desde la ficha.' })
+  notificar()
+  return esperar(cliente)
+}
+
+export async function actualizarCliente(id: string, datos: DatosCliente) {
+  const i = db.clientes.findIndex((c) => c.id === id)
+  if (i < 0) throw new Error('Cliente no encontrado.')
+  const antes = db.clientes[i]
+  const d = normalizar(datos)
+  if (identificacionUsada(d.cedula, id)) throw new Error('Ya existe un cliente con esta identificación.')
+  const cambios = diferencias(antes, d)
+  db.clientes[i] = { ...antes, ...d }
+  if (cambios.length) registrarCambio({ clienteId: id, accion: 'Edición', cambios })
+  notificar()
+  return esperar({ cliente: db.clientes[i], cambios: cambios.length })
+}
+
+/** Un cliente con saldo pendiente no se puede inactivar. */
+export function bloqueoInactivar(id: string): string | null {
+  const ops = todasLasOperaciones().filter((o) => o.clienteId === id && !o.cancelada)
+  if (ops.length) return `Tiene ${ops.length === 1 ? 'una operación vigente' : `${ops.length} operaciones vigentes`}. Se puede inactivar cuando todas estén canceladas.`
+  if (db.juicios.some((j) => j.clienteId === id)) return 'Tiene una causa judicial abierta.'
+  return null
+}
+
+export async function cambiarEstadoCliente(id: string, activo: boolean, motivo: string) {
+  const c = db.clientes.find((x) => x.id === id)
+  if (!c) throw new Error('Cliente no encontrado.')
+  if (!activo) {
+    const b = bloqueoInactivar(id)
+    if (b) throw new Error(b)
+  }
+  c.estado = activo ? 'Activo' : 'Inactivo'
+  c.motivoInactivo = activo ? undefined : motivo
+  registrarCambio({ clienteId: id, accion: activo ? 'Reactivación' : 'Inactivación', cambios: [{ campo: 'Estado', antes: activo ? 'Inactivo' : 'Activo', despues: c.estado }], nota: motivo || undefined })
+  notificar()
+  return esperar(c)
 }
 
 // ── Operaciones ─────────────────────────────────────────────────────────────

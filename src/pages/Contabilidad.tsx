@@ -155,7 +155,7 @@ function Conciliacion({ d }: { d: Datos }) {
             ))}
           </ul>
         </Panel>
-        <Panel titulo={`Estado de cuenta · ${nombreMes(HOY)}`} detalle="Cuenta recaudadora (ficticia)" cuerpo="">
+        <Panel titulo={`Estado de cuenta · ${nombreMes(HOY)}`} detalle="Cuenta recaudadora" cuerpo="">
           <Tabla etiqueta="Movimientos bancarios" className="max-h-[420px]">
             <thead><tr><Th>Fecha</Th><Th>Descripción</Th><Th>Estado</Th><Th derecha>Monto</Th></tr></thead>
             <tbody>

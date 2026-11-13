@@ -20,7 +20,7 @@ Stack: Vite + React + TypeScript + Tailwind CSS v4 + Recharts, React Router (Has
 | Ruta | Módulo | Qué muestra |
 |---|---|---|
 | `#/` | Panel | Saldo, morosidad, recuperado vs. exigible, cartera por antigüedad (roseta guilloché), promesas, juicios, campañas y dónde actuar hoy. |
-| `#/clientes` | Clientes | Búsqueda por nombre, cédula o ciudad; ficha con operaciones, pagos, promesas y causas. |
+| `#/clientes` | Clientes | Listado con filtros; alta y edición en seis pasos (identificación con validación de cédula/RUC, contacto, actividad económica y capacidad de pago, referencias y cónyuge, canales autorizados y gestor); ficha con pestañas y historial de cambios. Los clientes no se borran: se inactivan, y solo si no tienen operaciones vigentes ni juicios. |
 | `#/operaciones` | Operaciones | Cartera con filtros y orden; el detalle trae la tabla de amortización con el estado de cada cuota y un formulario de pago. |
 | `#/amortizacion` | Amortización | Simulador francés / alemán, comparación de cuotas y recálculo con abono extraordinario (bajar cuota o acortar plazo). |
 | `#/pagos` | Pagos y abonos | Historial filtrable y registro de pagos con vista previa del efecto en el saldo. |
@@ -38,6 +38,7 @@ Los datos no son números sueltos: se **generan** a partir de reglas, con una se
 - Los días de mora, el tramo de antigüedad y la etapa de cobranza se calculan a partir de la primera cuota impaga.
 - Los juicios nacen de las operaciones con más de 120 días de mora; sus costas generan asientos de gasto.
 - Cada desembolso, pago y costa genera su asiento contable. La cuenta *1.4.01 Cartera de créditos* cuadra al centavo con la suma de saldos de las operaciones (lo verás en **Contabilidad → Balance y cuadre**).
+- Si creas o editas un cliente, el cambio queda en su historial con usuario, fecha y hora.
 - Si registras un pago en la demo, baja el saldo de la operación, del cliente y del panel, sube lo recuperado del mes y aparece su asiento. Esto vive en memoria: al recargar la página se vuelve a los datos iniciales.
 
 La fecha de corte de la demo está fija en **13 de noviembre de 2026** (`HOY` en `src/mocks/catalogos.ts`).
@@ -46,7 +47,7 @@ La fecha de corte de la demo está fija en **13 de noviembre de 2026** (`HOY` en
 
 ```
 src/
-  domain/      Reglas de negocio puras: fechas, amortización, estado de cartera, tipos
+  domain/      Reglas de negocio puras: fechas, amortización, estado de cartera, clientes, identificación, tipos
   mocks/       Datos ficticios: catálogos, generador con semilla, base en memoria (db.ts)
   services/    api.ts — la única puerta de entrada de las pantallas a los datos
   lib/         Formatos (USD es-EC), hook useServicio
@@ -59,7 +60,7 @@ Las pantallas **nunca** importan de `src/mocks`: solo llaman funciones asíncron
 ## Cómo cambiar los datos
 
 - **Cambiar nombres, ciudades, gestores o la entidad:** edita `src/mocks/catalogos.ts`.
-- **Más o menos clientes:** `generarClientes(118)` en `src/mocks/generar.ts`.
+- **Más o menos clientes:** `generarClientes(118)` en `src/mocks/generar.ts`. Los datos de ficha (direcciones, ingresos, referencias) salen de `src/mocks/fichas.ts`, con su propia semilla.
 - **Más o menos mora:** el reparto de perfiles (`puntual`, `atrasado`, `irregular`) y la lista `ATRASOS` (meses sin pagar) en `src/mocks/generar.ts`.
 - **Otro conjunto aleatorio:** cambia la semilla en `crearRng(20261113)`.
 - **Campañas, reglas, flujos n8n y plan de cuentas:** `src/mocks/cobranza.ts`.

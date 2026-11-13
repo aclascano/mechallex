@@ -5,6 +5,7 @@ import type {
   Asiento, Cliente, Costa, EtapaJuicio, EventoJuicio, Juicio, MedioPago, MovimientoBanco, Operacion, Pago, Producto, Promesa,
 } from '../domain/tipos'
 import { ABOGADOS, APELLIDOS, CIUDADES, crearRng, GESTORES, HOY, MEDIOS, NEGOCIOS, NOMBRES, PRODUCTOS } from './catalogos'
+import { enriquecerCliente, generarHistorial } from './fichas'
 
 const rng = crearRng(20261113)
 
@@ -32,7 +33,7 @@ function generarClientes(n: number): Cliente[] {
     const provincia = String(rng.int(1, 24)).padStart(2, '0')
     const cedula = provincia + String(rng.int(10_000_000, 99_999_999))
     const ciudad = rng.chance(0.4) ? 'Quito' : rng.pick(CIUDADES)
-    lista.push({
+    lista.push(enriquecerCliente({
       id: `CL-${String(1001 + i)}`,
       nombre,
       cedula: esNegocio ? cedula + '001' : cedula,
@@ -42,7 +43,7 @@ function generarClientes(n: number): Cliente[] {
       segmento: esNegocio ? (rng.chance(0.5) ? 'Pyme' : 'Microempresa') : 'Personas',
       gestor: rng.pick(GESTORES),
       clienteDesde: addDays('2019-01-15', rng.int(0, 1500)),
-    })
+    }))
   }
   return lista
 }
@@ -329,7 +330,8 @@ export function generarBaseDemo() {
   const promesas = generarPromesas(operaciones, pagos)
   const banco = generarBanco(operaciones, pagos, juicios)
   const asientos = generarAsientos(operaciones, pagos, juicios)
-  return { clientes, operaciones, pagos, juicios, promesas, asientos, banco }
+  const historial = generarHistorial(clientes)
+  return { clientes, operaciones, pagos, juicios, promesas, asientos, banco, historial }
 }
 
 export type BaseDemo = ReturnType<typeof generarBaseDemo>

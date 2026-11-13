@@ -8,16 +8,81 @@ export type EtapaCobranza = 'preventiva' | 'administrativa' | 'extrajudicial' | 
 export type Canal = 'Llamada' | 'SMS' | 'WhatsApp' | 'Correo'
 export type MedioPago = 'Ventanilla' | 'Transferencia' | 'Débito automático' | 'Corresponsal' | 'Pago web'
 
-export interface Cliente {
-  id: string
+export type TipoPersona = 'Natural' | 'Jurídica'
+export type TipoIdentificacion = 'Cédula' | 'RUC' | 'Pasaporte'
+export type EstadoCivil = 'Soltero/a' | 'Casado/a' | 'Unión de hecho' | 'Divorciado/a' | 'Viudo/a'
+export type SituacionLaboral = 'Dependiente' | 'Independiente' | 'Jubilado/a' | 'Empresa'
+export type Segmento = 'Personas' | 'Microempresa' | 'Pyme'
+
+export interface Direccion {
+  ciudad: string
+  calle: string
+  referencia: string
+}
+
+export interface ReferenciaCliente {
+  tipo: 'Personal' | 'Comercial'
+  nombre: string
+  relacion: string
+  telefono: string
+}
+
+export interface Conyuge {
   nombre: string
   cedula: string
-  ciudad: string
   telefono: string
+  ingresos: number
+}
+
+/** Datos que se capturan al crear o editar un cliente. */
+export interface DatosCliente {
+  tipoPersona: TipoPersona
+  tipoIdentificacion: TipoIdentificacion
+  cedula: string
+  /** Nombre completo (persona) o razón social (empresa). */
+  nombre: string
+  nombres: string
+  apellidos: string
+  fechaNacimiento: ISODate | ''
+  genero: 'Femenino' | 'Masculino' | 'Otro' | ''
+  estadoCivil: EstadoCivil | ''
+  nacionalidad: string
+  representanteLegal: string
+  telefono: string
+  telefonoAlterno: string
   email: string
-  segmento: 'Personas' | 'Microempresa' | 'Pyme'
+  ciudad: string
+  domicilio: Direccion
+  trabajo: Direccion
+  situacionLaboral: SituacionLaboral
+  actividad: string
+  empleador: string
+  ingresos: number
+  egresos: number
+  patrimonio: number
+  referencias: ReferenciaCliente[]
+  conyuge: Conyuge | null
+  consentimiento: Record<Canal, boolean>
+  segmento: Segmento
   gestor: string
+}
+
+export interface Cliente extends DatosCliente {
+  id: string
   clienteDesde: ISODate
+  estado: 'Activo' | 'Inactivo'
+  motivoInactivo?: string
+}
+
+export interface CambioCliente {
+  id: string
+  clienteId: string
+  /** ISO con hora, p. ej. 2026-11-13T10:24 */
+  fecha: string
+  usuario: string
+  accion: 'Creación' | 'Edición' | 'Inactivación' | 'Reactivación'
+  cambios: { campo: string; antes: string; despues: string }[]
+  nota?: string
 }
 
 export interface Operacion {

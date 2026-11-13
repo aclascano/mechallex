@@ -89,10 +89,25 @@ function Riel({ onNavegar }: { onNavegar?: () => void }) {
       </nav>
       <div className="relative border-t border-rail-line px-5 py-4">
         <p className="text-[0.8rem] font-medium">{ENTIDAD_DEMO.nombre}</p>
-        <p className="mt-0.5 text-[0.72rem] text-rail-ink-2">{ENTIDAD_DEMO.nota} · datos de demostración</p>
-        <div aria-hidden="true" className="microprint mt-3 text-rail-ink-2/60">{'MECHALLEX · TÍTULO DE DEMOSTRACIÓN · SIN VALOR · '.repeat(12)}</div>
+        <div aria-hidden="true" className="microprint mt-3 text-rail-ink-2/60">{'MECHALLEX · CARTERA · COBRANZA · '.repeat(12)}</div>
       </div>
     </div>
+  )
+}
+
+function Reloj() {
+  const [ahora, setAhora] = useState(() => new Date())
+  useEffect(() => {
+    const t = window.setInterval(() => setAhora(new Date()), 15_000)
+    return () => window.clearInterval(t)
+  }, [])
+  const hora = ahora.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false })
+  return (
+    <p className="hidden text-[0.8rem] text-ink-3 md:block">
+      <time dateTime={HOY}><span className="font-medium text-ink-2">{fmtFechaLarga(HOY)}</span></time>
+      <span aria-hidden="true"> · </span>
+      <time className="tabular font-medium text-ink-2">{hora}</time>
+    </p>
   )
 }
 
@@ -159,9 +174,7 @@ export function Layout() {
             />
           </form>
           <div className="ml-auto flex items-center gap-2 sm:gap-3">
-            <p className="hidden text-[0.8rem] text-ink-3 md:block">
-              Corte al <span className="font-medium text-ink-2">{fmtFechaLarga(HOY)}</span>
-            </p>
+            <Reloj />
             <button
               onClick={() => setOscuro(!oscuro)}
               className="grid h-9 w-9 place-items-center rounded-[9px] border border-line-strong bg-panel text-ink-2 transition-colors hover:text-ink"

@@ -7,6 +7,7 @@ import PaginaPanel from './pages/Panel'
 // Cada módulo se carga bajo demanda; el panel va en el paquete inicial.
 const PaginaClientes = lazy(() => import('./pages/Clientes'))
 const PaginaCliente = lazy(() => import('./pages/Cliente'))
+const PaginaClienteFormulario = lazy(() => import('./pages/ClienteFormulario'))
 const PaginaOperaciones = lazy(() => import('./pages/Operaciones'))
 const PaginaOperacion = lazy(() => import('./pages/Operacion'))
 const PaginaAmortizacion = lazy(() => import('./pages/Amortizacion'))
@@ -26,7 +27,9 @@ export function App() {
         <Route element={<Layout />}>
           <Route index element={<PaginaPanel />} />
           <Route path="clientes" element={conCarga(<PaginaClientes />)} />
+          <Route path="clientes/nuevo" element={conCarga(<PaginaClienteFormulario />)} />
           <Route path="clientes/:id" element={conCarga(<PaginaCliente />)} />
+          <Route path="clientes/:id/editar" element={conCarga(<PaginaClienteFormulario key="editar" />)} />
           <Route path="operaciones" element={conCarga(<PaginaOperaciones />)} />
           <Route path="operaciones/:id" element={conCarga(<PaginaOperacion />)} />
           <Route path="amortizacion" element={conCarga(<PaginaAmortizacion />)} />

@@ -4,7 +4,6 @@ export const HOY = '2026-11-13'
 
 export const ENTIDAD_DEMO = {
   nombre: 'Cooperativa Nueve Volcanes',
-  nota: 'Entidad ficticia',
 }
 
 export const USUARIA_DEMO = { nombre: 'Valeria Rivas', cargo: 'Jefa de cartera y cobranza', iniciales: 'VR' }
