@@ -81,4 +81,4 @@ Las reglas de `src/domain` (amortización, aplicación de pagos) pueden quedarse
 
 ## Diseño
 
-Mundo visual: la **impresión de seguridad** de los títulos valor (pagaré, cheque, billete). Hay un riel verde tinta, un papel de seguridad rosado pálido, tinta palo de rosa, cifras en Bodoni, microimpresión como filete y una **roseta guilloché** cuyos anillos codifican la cartera por antigüedad. Tiene modo claro y oscuro (se recuerda en el navegador) y es responsive y navegable con teclado. Los detalles están en `DESIGN.md`.
+Mundo visual: la **impresión de seguridad** de los títulos valor (pagaré, cheque, billete). La paleta es monocroma: negro, blanco y grises, con un acento morado (alrededor del 10 %). Lleva cifras en Bodoni, microimpresión como filete y una **roseta guilloché** cuyos anillos codifican la cartera por antigüedad. Tiene modo claro y oscuro (se recuerda en el navegador) y es responsive y navegable con teclado. Los detalles están en `DESIGN.md`.

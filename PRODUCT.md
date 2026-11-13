@@ -38,7 +38,7 @@ Ecuador, USD. Fictional cédulas of 10 digits, Ecuadorian cities, judicial proce
 ## Brand Commitments
 
 - Name: Mechallex (family "Mechal").
-- Owner's taste, binding: minimalist, elegant, tech, with a feminine touch.
+- Owner's taste, binding: minimalist, elegant, tech. Palette: black, white and neutral greys with a purple accent (~10%); the earlier rose palette was rejected as too "girly" (2026-11-13).
 - Must never copy code, screens, names, logos, texts or data from the owner's employer or its internal system. Only general, common sector business logic.
 
 ## Evidence on Hand

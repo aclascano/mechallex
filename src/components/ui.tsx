@@ -52,7 +52,7 @@ export function Boton({ variante = 'secundario', className, children, icono, ...
       {...rest}
       className={cx(
         'inline-flex h-9 items-center justify-center gap-2 rounded-[9px] px-3.5 text-[0.85rem] font-medium whitespace-nowrap transition-[background-color,border-color,color,box-shadow] duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50',
-        variante === 'primario' && 'bg-rail text-rail-ink shadow-[0_1px_0_oklch(1_0_0/0.08)_inset] hover:bg-rail-2 active:translate-y-px dark:bg-rose dark:text-[oklch(0.2_0.03_172)] dark:hover:bg-rose-ink',
+        variante === 'primario' && 'bg-rail text-rail-ink shadow-[0_1px_0_oklch(1_0_0/0.08)_inset] hover:bg-rail-2 active:translate-y-px dark:bg-rose dark:text-[oklch(0.15_0.01_290)] dark:hover:bg-rose-ink',
         variante === 'secundario' && 'border border-line-strong bg-panel text-ink hover:border-ink-3 hover:bg-panel-2',
         variante === 'fantasma' && 'text-ink-2 hover:bg-panel-2 hover:text-ink',
         className,

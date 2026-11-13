@@ -124,7 +124,7 @@ export default function PaginaJuicios() {
                               onClick={() => abrir(j.id)}
                               aria-pressed={sel === j.id}
                               className={cx(
-                                'w-full rounded-[10px] border bg-panel p-3 text-left shadow-[0_1px_2px_oklch(0.3_0.03_20/0.05)] transition-[border-color,box-shadow] duration-150 hover:border-line-strong',
+                                'w-full rounded-[10px] border bg-panel p-3 text-left shadow-[0_1px_2px_oklch(0_0_0/0.05)] transition-[border-color,box-shadow] duration-150 hover:border-line-strong',
                                 sel === j.id ? 'border-rose ring-2 ring-rose/25' : 'border-line',
                               )}
                             >

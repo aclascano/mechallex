@@ -125,7 +125,7 @@ export function Layout() {
 
       {menu && (
         <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Menú">
-          <button className="absolute inset-0 bg-[oklch(0.15_0.02_172/0.45)] backdrop-blur-[2px]" aria-label="Cerrar menú" onClick={() => setMenu(false)} />
+          <button className="absolute inset-0 bg-[oklch(0.1_0_0/0.5)] backdrop-blur-[2px]" aria-label="Cerrar menú" onClick={() => setMenu(false)} />
           <div className="absolute inset-y-0 left-0 w-[272px] max-w-[85vw] shadow-2xl" style={{ animation: 'aparecer 220ms var(--ease-out-expo) both' }}>
             <Riel onNavegar={() => setMenu(false)} />
             <button onClick={() => setMenu(false)} className="absolute top-4 right-3 grid h-8 w-8 place-items-center rounded-md text-rail-ink-2 hover:text-rail-ink" aria-label="Cerrar menú">

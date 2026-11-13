@@ -6,16 +6,16 @@ World: **security printing** — the visual language of promissory notes, cheque
 
 | Role | Light | Dark |
 |---|---|---|
-| Ground (`--paper`) | `oklch(0.972 0.009 20)` rose-tinted security paper | `oklch(0.185 0.018 172)` ink-green night |
-| Panel | `oklch(0.995 0.003 20)` | `oklch(0.218 0.02 172)` |
-| Rail (`--rail`) | `oklch(0.27 0.045 172)` banknote ink green | `oklch(0.15 0.02 172)` |
-| Ink | `oklch(0.25 0.03 172)` | `oklch(0.945 0.012 20)` |
-| Accent (`--rose`) | `oklch(0.6 0.105 8)` palo de rosa | `oklch(0.78 0.085 10)` |
-| Steel (secondary series) | `oklch(0.52 0.035 245)` | `oklch(0.74 0.04 240)` |
-| States | ok 160°, warn 70°, bad 25° hues, each with a `-soft` fill | lifted for dark |
-| Aging series `--t0…--t5` | ink green (al día) → blush → rose → wine (+180) | same ramp, lifted |
+| Ground (`--paper`) | `oklch(0.982 0.002 290)` near white | `oklch(0.13 0.004 290)` near black |
+| Panel | `oklch(1 0 0)` | `oklch(0.17 0.005 290)` |
+| Rail (`--rail`) | `oklch(0.15 0.005 290)` black | `oklch(0.1 0.003 290)` |
+| Ink | `oklch(0.17 0.006 290)` | `oklch(0.97 0.002 290)` |
+| Accent (`--rose*`, now purple) | `oklch(0.54 0.21 295)` | `oklch(0.72 0.16 295)` |
+| Secondary series (`--steel`) | neutral grey `oklch(0.42 0.01 290)` | `oklch(0.72 0.008 290)` |
+| States | ok 155°, warn 70°, bad 25°, each with a `-soft` fill | lifted for dark |
+| Aging series `--t0…--t5` | grey (al día) → light lavender → deep violet (+180) | same ramp, lifted |
 
-Color strategy: Restrained + committed shell (the rail is always ink green). Accent only for primary series, selection, current nav and focus.
+Color strategy: monochrome (black, white, neutral greys) with a purple accent at roughly 10% of the surface: primary data series, selection, current nav, links and focus. The rail is always black. Token names `--rose*` are kept for compatibility and hold the purple accent.
 
 ## Type
 
