@@ -14,6 +14,7 @@ const PaginaAmortizacion = lazy(() => import('./pages/Amortizacion'))
 const PaginaNuevaObligacion = lazy(() => import('./pages/NuevaObligacion'))
 const PaginaPagos = lazy(() => import('./pages/Pagos'))
 const PaginaCobranza = lazy(() => import('./pages/Cobranza'))
+const PaginaGestionCobranza = lazy(() => import('./pages/GestionCobranza'))
 const PaginaJuicios = lazy(() => import('./pages/Juicios'))
 const PaginaContabilidad = lazy(() => import('./pages/Contabilidad'))
 const PaginaReportes = lazy(() => import('./pages/Reportes'))
@@ -37,6 +38,7 @@ export function App() {
           <Route path="obligaciones/nueva" element={conCarga(<PaginaNuevaObligacion />)} />
           <Route path="amortizacion" element={conCarga(<PaginaAmortizacion />)} />
           <Route path="pagos" element={conCarga(<PaginaPagos />)} />
+          <Route path="gestion" element={conCarga(<PaginaGestionCobranza />)} />
           <Route path="cobranza" element={conCarga(<PaginaCobranza />)} />
           <Route path="juicios" element={conCarga(<PaginaJuicios />)} />
           <Route path="contabilidad" element={conCarga(<PaginaContabilidad />)} />

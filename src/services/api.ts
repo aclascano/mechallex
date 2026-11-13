@@ -5,11 +5,13 @@
 import { recalcular, round2, type ModoRecalculo } from '../domain/amortizacion'
 import { distribuirPago, estadoOperacion, TASA_MORA_DIARIA, tramoDe, TRAMOS } from '../domain/cartera'
 import { addDays, addMonths, diffDays, endOfMonth, fmtMes, monthKey, startOfMonth, type ISODate } from '../domain/fechas'
+import { CANALES_GESTION, enHorario, hayContacto, MOTIVOS, pideMotivo, planConvenio, prioridad, renderPlantilla, RESULTADOS } from '../domain/cobranza'
 import { diferencias, mesesDesdeActualizacion, normalizar, VIGENCIA_SOCIO_MESES } from '../domain/clientes'
 import { CATEGORIAS, categoriaDe, ESTADOS, estimarMatriz, estresar, LGD, provisionDe, proyectar, type EstadoRodamiento } from '../domain/provisiones'
 import { evaluarRiesgo, type Banda, type EntradaRiesgo, type HistorialPago, type ResultadoRiesgo } from '../domain/riesgo'
 import { COBERTURA_MINIMA, detallePago, saldosOperacion, tablaDevengo, valorCuotas } from '../domain/operacion'
 import { costos, primerVencimiento, tablaObligacion, validarPaso, PASOS_OBLIGACION, type DatosObligacion, type ProductoCredito } from '../domain/obligacion'
+import type { CanalGestion, Convenio, Gestion, MotivoNoPago, PasoEstrategia, Plantilla, ResultadoGestion } from '../domain/tipos'
 import type { CambioCliente, Cliente, DatosCliente, EstadoOperacion, GarantiasOperacion, LoteRecaudo, MedioPago, Operacion, Pago, Promesa, Tramo } from '../domain/tipos'
 import { dinero } from '../lib/formato'
 import { CIUDADES, CONDICIONES_PRODUCTO, GESTORES, HOY, MEDIOS, PRODUCTOS, USUARIA_DEMO } from '../mocks/catalogos'
@@ -166,7 +168,7 @@ export async function obtenerCliente(id: string) {
   const promesas = db.promesas.filter((p) => p.clienteId === id).map((p) => ({ ...p, estado: estadoPromesa(p) }))
   const juicios = db.juicios.filter((j) => j.clienteId === id)
   const historial = db.historial.filter((h) => h.clienteId === id).sort((a, b) => b.fecha.localeCompare(a.fecha) || Number(b.id.slice(3)) - Number(a.id.slice(3)))
-  return esperar({ cliente, operaciones, pagos, promesas, juicios, historial, garantiasPrestadas: garantiasPrestadas(id), comportamiento: comportamientoCliente(id), riesgo: riesgoCliente(id) })
+  return esperar({ cliente, operaciones, pagos, promesas, juicios, historial, garantiasPrestadas: garantiasPrestadas(id), comportamiento: comportamientoCliente(id), riesgo: riesgoCliente(id), gestiones: db.gestiones.filter((g) => g.clienteId === id).slice().reverse(), convenios: db.convenios.filter((c) => c.clienteId === id).map((c) => ({ ...c, ...estadoConvenio(c) })) })
 }
 
 // ── Estadísticas de clientes ───────────────────────────────────────────────
@@ -677,6 +679,8 @@ export async function obtenerOperacion(id: string) {
     documentos: documentosDe(op, g),
     fechasPago: fechasDePago(op),
     promesas: db.promesas.filter((p) => p.operacionId === id).map((p) => ({ ...p, estado: estadoPromesa(p) })),
+    gestiones: db.gestiones.filter((g) => g.operacionId === id).slice().reverse(),
+    convenios: db.convenios.filter((c) => c.operacionId === id).map((c) => ({ ...c, ...estadoConvenio(c) })),
   })
 }
 
@@ -1120,6 +1124,296 @@ export async function alternarFlujo(id: string) {
   if (f) f.activo = !f.activo
   notificar()
   return esperar(f)
+}
+
+// ── Gestión de cobranza ─────────────────────────────────────────────────────
+const horaReloj = () => new Date().toTimeString().slice(0, 5)
+
+/** Variables para las plantillas a partir de una operación. */
+function variablesDe(op: OperacionVista, promesa?: { fechaCompromiso: ISODate }) {
+  const s = saldosOperacion(op, op, HOY)
+  return {
+    nombre: op.cliente.nombres || op.cliente.nombre,
+    monto: dinero(op.diasMora > 0 ? s.exigible : op.proximaCuota?.valor ?? 0),
+    dias: String(op.diasMora),
+    fecha: fmtFechaISO(promesa?.fechaCompromiso ?? op.proximaCuota?.fecha ?? HOY),
+    operacion: op.id,
+    enlace: `pagos.nuevevolcanes.example/${op.id.toLowerCase()}`,
+    gestor: op.cliente.gestor,
+    entidad: 'Cooperativa Nueve Volcanes',
+  }
+}
+
+export function plantillaParaEtapa(etapa: EstadoOperacion['etapa']) {
+  return db.plantillas.find((p) => p.id === (etapa === 'extrajudicial' || etapa === 'judicial' ? 'PL-06' : 'PL-05'))!
+}
+
+/** Cola priorizada del día para un gestor (o todo el equipo). */
+export async function colaDelDia(gestor: string) {
+  const promesas = db.promesas.map((p) => ({ ...p, estado: estadoPromesa(p) }))
+  const hoyGestionadas = new Set(db.gestiones.filter((g) => g.fecha === HOY && !g.automatica).map((g) => g.operacionId))
+  const items = todasLasOperaciones()
+    .filter((o) => !o.cancelada && (!gestor || o.cliente.gestor === gestor))
+    .map((o) => {
+      const gs = db.gestiones.filter((g) => g.operacionId === o.id)
+      const ultima = [...gs].reverse().find((g) => !g.automatica)
+      const agendada = gs.filter((g) => g.proxima && g.proxima.fecha <= HOY).at(-1)?.proxima
+      const pr = promesas.filter((p) => p.operacionId === o.id)
+      const promesaRota = pr.some((p) => p.estado === 'Incumplida')
+      const promesaHoy = pr.some((p) => p.estado === 'Vigente' && p.fechaCompromiso <= addDays(HOY, 1))
+      const preventivo = o.diasMora === 0 && !!o.proximaCuota && o.proximaCuota.fecha <= addDays(HOY, 3)
+      const motivos: string[] = []
+      if (o.diasMora > 0) motivos.push(`${o.diasMora} días de mora`)
+      if (promesaRota) motivos.push('promesa incumplida')
+      if (promesaHoy) motivos.push('promesa vence hoy o mañana')
+      if (agendada) motivos.push(`agendado: ${agendada.accion.toLowerCase()}`)
+      if (preventivo) motivos.push(`cuota vence el ${fmtFechaISO(o.proximaCuota!.fecha)}`)
+      return {
+        op: o,
+        motivos,
+        ultima,
+        gestionadoHoy: hoyGestionadas.has(o.id),
+        prioridad: prioridad({ valorVencido: o.valorVencido, diasMora: o.diasMora, promesaRota, agendadoHoy: !!agendada, promesaHoy, preventivo }),
+        incluir: o.diasMora > 0 || preventivo || !!agendada || promesaHoy,
+      }
+    })
+    .filter((x) => x.incluir && !db.juicios.some((j) => j.operacionId === x.op.id))
+    .sort((a, b) => Number(a.gestionadoHoy) - Number(b.gestionadoHoy) || b.prioridad - a.prioridad)
+  return esperar({ items, pendientes: items.filter((i) => !i.gestionadoHoy).length, gestionadosHoy: items.filter((i) => i.gestionadoHoy).length })
+}
+
+export function fichaGestion(operacionId: string) {
+  const op = vistaOperacion(db.operaciones.find((o) => o.id === operacionId)!)
+  const promesas = db.promesas.filter((p) => p.operacionId === operacionId).map((p) => ({ ...p, estado: estadoPromesa(p) }))
+  const vigente = promesas.find((p) => p.estado === 'Vigente')
+  const plantilla = plantillaParaEtapa(op.etapa)
+  return {
+    op,
+    saldos: saldosOperacion(op, op, HOY),
+    gestiones: db.gestiones.filter((g) => g.operacionId === operacionId).slice().reverse(),
+    promesas,
+    convenio: db.convenios.find((c) => c.operacionId === operacionId && estadoConvenio(c).estado === 'Vigente'),
+    guion: renderPlantilla(plantilla.texto, variablesDe(op, vigente)),
+    horario: (canal: CanalGestion) => enHorario(canal, HOY, horaReloj(), db.ventanas, db.feriados),
+  }
+}
+
+export interface NuevaGestion {
+  operacionId: string
+  canal: CanalGestion
+  resultado: ResultadoGestion
+  motivo?: MotivoNoPago
+  nota: string
+  promesa?: { fecha: ISODate; monto: number }
+  proxima?: { fecha: ISODate; accion: string }
+}
+
+export function validarGestion(g: NuevaGestion): Record<string, string> {
+  const e: Record<string, string> = {}
+  const op = db.operaciones.find((o) => o.id === g.operacionId)
+  if (!op) return { operacionId: 'Operación no encontrada.' }
+  const cli = db.clientes.find((c) => c.id === op.clienteId)!
+  if (g.canal !== 'Visita' && !cli.consentimiento[g.canal]) e.canal = `El cliente no autorizó contacto por ${g.canal}.`
+  if (pideMotivo(g.resultado) && !g.motivo) e.motivo = 'Elige el motivo del atraso.'
+  if (g.resultado === 'Promesa de pago') {
+    if (!g.promesa || !(g.promesa.monto > 0)) e.promesaMonto = 'Ingresa el monto comprometido.'
+    if (!g.promesa?.fecha || g.promesa.fecha < HOY || g.promesa.fecha > addDays(HOY, 30)) e.promesaFecha = 'La fecha debe estar entre hoy y 30 días.'
+  }
+  if (g.proxima && (!g.proxima.fecha || g.proxima.fecha < HOY)) e.proxima = 'La próxima acción no puede ser en el pasado.'
+  if (g.nota.trim().length < 5) e.nota = 'Escribe una nota breve de la gestión.'
+  return e
+}
+
+export async function registrarGestion(g: NuevaGestion) {
+  const e = validarGestion(g)
+  if (Object.keys(e).length) throw new Error(Object.values(e)[0])
+  const op = db.operaciones.find((o) => o.id === g.operacionId)!
+  const cli = db.clientes.find((c) => c.id === op.clienteId)!
+  let promesaId: string | undefined
+  if (g.resultado === 'Promesa de pago' && g.promesa) {
+    promesaId = `PR-${String(db.promesas.length + 1).padStart(3, '0')}`
+    db.promesas.push({ id: promesaId, operacionId: op.id, clienteId: cli.id, fechaCompromiso: g.promesa.fecha, monto: round2(g.promesa.monto), canal: g.canal === 'Visita' ? 'Llamada' : g.canal, estado: 'Vigente' })
+  }
+  const gestion: Gestion = {
+    id: `GS-${String(db.gestiones.length + 1).padStart(4, '0')}`, operacionId: op.id, clienteId: cli.id, gestor: USUARIA_DEMO.nombre, fecha: HOY, hora: horaReloj(),
+    canal: g.canal, resultado: g.resultado, motivo: pideMotivo(g.resultado) ? g.motivo : undefined, nota: g.nota.trim(), promesaId,
+    proxima: g.resultado === 'Promesa de pago' && g.promesa ? { fecha: g.promesa.fecha, accion: 'Verificar pago de la promesa' } : g.proxima,
+  }
+  db.gestiones.push(gestion)
+  notificar()
+  return esperar(gestion)
+}
+
+export interface FiltroGestiones { gestor: string; resultado: string; canal: string; desde: ISODate; hasta: ISODate; texto: string; incluirAutomaticas: boolean }
+
+export async function listarGestiones(f: FiltroGestiones) {
+  const t = f.texto.trim().toLowerCase()
+  const filas = db.gestiones
+    .filter((g) => (f.incluirAutomaticas || !g.automatica) && (!f.gestor || g.gestor === f.gestor) && (!f.resultado || g.resultado === f.resultado) && (!f.canal || g.canal === f.canal))
+    .filter((g) => (!f.desde || g.fecha >= f.desde) && (!f.hasta || g.fecha <= f.hasta))
+    .map((g) => ({ ...g, cliente: db.clientes.find((c) => c.id === g.clienteId)! }))
+    .filter((g) => !t || g.cliente.nombre.toLowerCase().includes(t) || g.operacionId.toLowerCase().includes(t) || g.cliente.cedula.includes(t))
+    .sort((a, b) => b.fecha.localeCompare(a.fecha) || b.hora.localeCompare(a.hora))
+  return esperar({ total: filas.length, filas: filas.slice(0, 300) })
+}
+
+// ── Convenios ───────────────────────────────────────────────────────────────
+/** Cumplimiento de un convenio: lo pagado desde su firma cubre la inicial y luego cada cuota en orden. */
+export function estadoConvenio(c: Convenio) {
+  const pagado = round2(pagosDe(c.operacionId).filter((p) => p.fecha >= c.fecha).reduce((s, p) => s + p.monto, 0))
+  let acumulado = c.inicial
+  const inicialCubierta = pagado >= c.inicial - 0.005
+  const cuotas = c.cuotas.map((q) => {
+    acumulado = round2(acumulado + q.monto)
+    const cubierta = pagado >= acumulado - 0.005
+    return { ...q, cubierta, vencida: !cubierta && q.fecha < addDays(HOY, -5) }
+  })
+  const total = round2(c.inicial + c.cuotas.reduce((s, q) => s + q.monto, 0))
+  const rota = (!inicialCubierta && addDays(c.fecha, 5) < HOY) || cuotas.some((q) => q.vencida)
+  const estado: 'Vigente' | 'Cumplido' | 'Roto' = pagado >= total - 0.005 ? 'Cumplido' : rota ? 'Roto' : 'Vigente'
+  return { pagado: Math.min(pagado, total), total, inicialCubierta, cuotas, estado, avance: total ? Math.min(1, pagado / total) : 0 }
+}
+
+export async function listarConvenios() {
+  return esperar(db.convenios.slice().reverse().map((c) => ({ ...c, cliente: db.clientes.find((x) => x.id === c.clienteId)!, ...estadoConvenio(c) })))
+}
+
+export function simularConvenio(operacionId: string, cuotas: number, inicialPct: number) {
+  const op = vistaOperacion(db.operaciones.find((o) => o.id === operacionId)!)
+  const s = saldosOperacion(op, op, HOY)
+  let bloqueo: string | null = null
+  if (op.cancelada) bloqueo = 'La operación está cancelada.'
+  else if (s.exigible <= 0) bloqueo = 'No tiene valores vencidos: no hace falta un convenio.'
+  else if (db.convenios.some((c) => c.operacionId === operacionId && estadoConvenio(c).estado === 'Vigente')) bloqueo = 'Ya tiene un convenio vigente.'
+  return { bloqueo, deuda: s.exigible, ...planConvenio(s.exigible, inicialPct, cuotas, HOY) }
+}
+
+export async function crearConvenio(operacionId: string, cuotas: number, inicialPct: number, nota: string) {
+  const sim = simularConvenio(operacionId, cuotas, inicialPct)
+  if (sim.bloqueo) throw new Error(sim.bloqueo)
+  const op = db.operaciones.find((o) => o.id === operacionId)!
+  const c: Convenio = { id: `CV-${String(db.convenios.length + 1).padStart(3, '0')}`, operacionId, clienteId: op.clienteId, fecha: HOY, gestor: USUARIA_DEMO.nombre, deuda: sim.deuda, inicial: sim.inicial, cuotas: sim.cuotas, nota: nota.trim() || 'Convenio de pago del valor vencido.' }
+  db.convenios.push(c)
+  db.gestiones.push({
+    id: `GS-${String(db.gestiones.length + 1).padStart(4, '0')}`, operacionId, clienteId: op.clienteId, gestor: USUARIA_DEMO.nombre, fecha: HOY, hora: horaReloj(), canal: 'Llamada',
+    resultado: 'Promesa de pago', nota: `Convenio ${c.id}: inicial ${dinero(c.inicial)} y ${cuotas} cuotas.`, proxima: { fecha: addDays(HOY, 5), accion: 'Verificar pago de la cuota inicial del convenio' },
+  })
+  notificar()
+  return esperar(c)
+}
+
+// ── Asignación de cartera ───────────────────────────────────────────────────
+export async function obtenerAsignacion() {
+  const ops = todasLasOperaciones().filter((o) => !o.cancelada)
+  const gestores = GESTORES.map((g) => {
+    const del = ops.filter((o) => o.cliente.gestor === g)
+    return {
+      gestor: g,
+      clientes: new Set(del.map((o) => o.clienteId)).size,
+      enMora: del.filter((o) => o.diasMora > 0).length,
+      vencido: round2(del.reduce((s, o) => s + o.valorVencido, 0)),
+      saldo: round2(del.reduce((s, o) => s + o.saldoCapital, 0)),
+      porTramo: TRAMOS.map((t) => del.filter((o) => o.tramo === t.id).length),
+    }
+  })
+  const enMora = ops.filter((o) => o.diasMora > 0 && !db.juicios.some((j) => j.operacionId === o.id))
+    .map((o) => ({ id: o.id, clienteId: o.clienteId, cliente: o.cliente.nombre, ciudad: o.cliente.ciudad, gestor: o.cliente.gestor, tramo: o.tramo, diasMora: o.diasMora, vencido: o.valorVencido }))
+    .sort((a, b) => b.vencido - a.vencido)
+  return esperar({ gestores, enMora })
+}
+
+export async function reasignar(clienteIds: string[], gestor: string) {
+  clienteIds.forEach((id) => {
+    const c = db.clientes.find((x) => x.id === id)
+    if (!c || c.gestor === gestor) return
+    db.historial.push({ id: `HC-${db.historial.length + 1}`, clienteId: id, fecha: `${HOY}T${horaReloj()}`, usuario: USUARIA_DEMO.nombre, accion: 'Edición', cambios: [{ campo: 'Gestor', antes: c.gestor, despues: gestor }], nota: 'Reasignación de cartera.' })
+    c.gestor = gestor
+  })
+  notificar()
+  return esperar(clienteIds.length)
+}
+
+/** Propuesta de reparto: asigna los clientes en mora al gestor con menos valor vencido acumulado. */
+export function propuestaBalanceo() {
+  const ops = todasLasOperaciones().filter((o) => !o.cancelada && o.diasMora > 0 && !db.juicios.some((j) => j.operacionId === o.id))
+  const porCliente = new Map<string, number>()
+  ops.forEach((o) => porCliente.set(o.clienteId, (porCliente.get(o.clienteId) ?? 0) + o.valorVencido))
+  const carga = new Map(GESTORES.map((g) => [g, 0]))
+  const cambios: { clienteId: string; cliente: string; de: string; a: string; vencido: number }[] = []
+  ;[...porCliente.entries()].sort((a, b) => b[1] - a[1]).forEach(([id, v]) => {
+    const a = [...carga.entries()].sort((x, y) => x[1] - y[1])[0][0]
+    carga.set(a, carga.get(a)! + v)
+    const c = db.clientes.find((x) => x.id === id)!
+    if (c.gestor !== a) cambios.push({ clienteId: id, cliente: c.nombre, de: c.gestor, a, vencido: round2(v) })
+  })
+  return { cambios, carga: [...carga.entries()].map(([g, v]) => ({ gestor: g, vencido: round2(v) })) }
+}
+
+// ── Desempeño ───────────────────────────────────────────────────────────────
+export async function obtenerDesempeno(dias = 30) {
+  const desde = addDays(HOY, -dias)
+  const gs = db.gestiones.filter((g) => g.fecha >= desde)
+  const promesas = db.promesas.map((p) => ({ ...p, estado: estadoPromesa(p) }))
+  const pagosPeriodo = db.pagos.filter((p) => p.fecha >= desde)
+  const porGestor = GESTORES.map((g) => {
+    const mias = gs.filter((x) => x.gestor === g)
+    const contactos = mias.filter((x) => hayContacto(x.resultado)).length
+    const ids = new Set(mias.filter((x) => x.promesaId).map((x) => x.promesaId))
+    const prs = promesas.filter((p) => ids.has(p.id))
+    const vencidas = prs.filter((p) => p.estado !== 'Vigente')
+    const ops = new Set(mias.map((x) => x.operacionId))
+    return {
+      gestor: g,
+      gestiones: mias.length,
+      contactabilidad: mias.length ? contactos / mias.length : 0,
+      promesas: prs.length,
+      cumplimiento: vencidas.length ? vencidas.filter((p) => p.estado === 'Cumplida').length / vencidas.length : null,
+      recuperado: round2(pagosPeriodo.filter((p) => ops.has(p.operacionId)).reduce((s, p) => s + p.monto, 0)),
+    }
+  })
+  const porCanal = CANALES_GESTION.map((canal) => {
+    const del = gs.filter((x) => x.canal === canal)
+    return { canal, gestiones: del.length, contactabilidad: del.length ? del.filter((x) => hayContacto(x.resultado) || x.resultado === 'Enviado').length / del.length : 0, promesas: del.filter((x) => x.promesaId).length }
+  })
+  const porResultado = RESULTADOS.map((r) => ({ resultado: r, n: gs.filter((x) => x.resultado === r).length }))
+  const motivos = MOTIVOS.map((m) => ({ motivo: m, n: gs.filter((x) => x.motivo === m).length })).filter((m) => m.n).sort((a, b) => b.n - a.n)
+  const porDia = Array.from({ length: 14 }, (_, i) => {
+    const f = addDays(HOY, -13 + i)
+    return { fecha: f, manuales: db.gestiones.filter((x) => x.fecha === f && !x.automatica).length, automaticas: db.gestiones.filter((x) => x.fecha === f && x.automatica).length }
+  })
+  return esperar({ porGestor, porCanal, porResultado, motivos, porDia, total: gs.length, dias })
+}
+
+// ── Configuración de la cobranza automatizada ──────────────────────────────
+export async function obtenerAutomatizacion() {
+  const hora = horaReloj()
+  return esperar({
+    estrategia: db.estrategia.slice().sort((a, b) => a.dia - b.dia),
+    plantillas: db.plantillas,
+    ventanas: db.ventanas.map((v) => ({ ...v, ahora: enHorario(v.canal, HOY, hora, db.ventanas, db.feriados) })),
+    feriados: db.feriados,
+    ejecuciones: db.ejecuciones.map((e) => ({ ...e, flujo: db.flujos.find((f) => f.id === e.flujoId)!.nombre })),
+    webhooks: db.webhooks,
+    ejemploPlantilla: (() => {
+      const op = todasLasOperaciones().find((o) => o.diasMora > 10 && !o.cancelada) ?? todasLasOperaciones()[0]
+      return { operacion: op.id, cliente: op.cliente.nombre, variables: variablesDe(op) }
+    })(),
+  })
+}
+
+export async function actualizarPaso(id: string, cambios: Partial<PasoEstrategia>) {
+  const p = db.estrategia.find((x) => x.id === id)
+  if (p) Object.assign(p, cambios)
+  notificar()
+  return esperar(p)
+}
+
+export async function guardarPlantilla(id: string, cambios: Partial<Plantilla>) {
+  const p = db.plantillas.find((x) => x.id === id)
+  if (!p) throw new Error('Plantilla no encontrada.')
+  Object.assign(p, cambios)
+  notificar()
+  return esperar(p)
 }
 
 // ── Contabilidad ────────────────────────────────────────────────────────────

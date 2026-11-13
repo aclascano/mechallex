@@ -3,8 +3,10 @@ import type { Caja, LoteRecaudo, Reverso } from '../domain/tipos'
 import { HOY, USUARIA_DEMO } from './catalogos'
 import { CAMPANIAS, FLUJOS_N8N, PLAN_CUENTAS, REGLAS } from './cobranza'
 import { generarBaseDemo } from './generar'
+import { ESTRATEGIA, FERIADOS, generarCobranza, generarEjecuciones, PLANTILLAS, VENTANAS, WEBHOOKS } from './gestiones'
 
 const base = generarBaseDemo()
+const cobranza = generarCobranza(base.operaciones, base.pagos, base.promesas, base.clientes)
 
 export const db = {
   ...base,
@@ -16,6 +18,14 @@ export const db = {
   // La caja del día arranca abierta para que la demo pueda recibir efectivo de inmediato.
   caja: { fecha: HOY, cajero: USUARIA_DEMO.nombre, estado: 'Abierta', fondoInicial: 300, apertura: '08:30' } as Caja,
   lotes: [] as LoteRecaudo[],
+  gestiones: cobranza.gestiones,
+  convenios: cobranza.convenios,
+  estrategia: ESTRATEGIA.map((p) => ({ ...p })),
+  plantillas: PLANTILLAS.map((p) => ({ ...p })),
+  ventanas: VENTANAS,
+  feriados: FERIADOS,
+  ejecuciones: generarEjecuciones(FLUJOS_N8N),
+  webhooks: WEBHOOKS,
 }
 
 export type Db = typeof db

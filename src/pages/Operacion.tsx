@@ -3,6 +3,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { AbonoCapital, AvisoAccion, Precancelacion } from '../components/AccionesOperacion'
 import { BarraCobertura } from '../components/Cobertura'
+import { ListaGestiones, ResumenConvenio } from '../components/ListaGestiones'
 import { RegistroPago } from '../components/RegistroPago'
 import { ReversoPago } from '../components/ReversoPago'
 import {
@@ -563,6 +564,7 @@ function EstadoCuenta({ d }: { d: Detalle }) {
 function Cobranza({ d }: { d: Detalle }) {
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      {d.convenios.map((c) => <ResumenConvenio key={c.id} c={c} />)}
       <Panel titulo="Situación de cobranza">
         {d.cancelada ? <p className="text-[0.85rem] text-ink-2">Operación cancelada. No está en gestión de cobranza.</p> : (
           <div className="space-y-4">
@@ -594,6 +596,7 @@ function Cobranza({ d }: { d: Detalle }) {
           </ul>
         )}
       </Panel>
+      <div className="xl:col-span-2"><ListaGestiones gestiones={d.gestiones} /></div>
     </div>
   )
 }

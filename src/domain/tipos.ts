@@ -342,3 +342,88 @@ export interface MovimientoBanco {
   monto: number // + crédito, - débito
   pagoId?: string
 }
+
+// ── Gestión de cobranza ─────────────────────────────────────────────────────
+export type CanalGestion = Canal | 'Visita'
+export type ResultadoGestion =
+  | 'Promesa de pago' | 'Contactado sin compromiso' | 'No contesta' | 'Número equivocado' | 'Mensaje dejado' | 'Se niega a pagar' | 'Ya pagó' | 'Enviado'
+export type MotivoNoPago = 'Desempleo' | 'Baja de ventas' | 'Enfermedad' | 'Olvido' | 'Sobreendeudamiento' | 'Desacuerdo con el saldo' | 'Otro'
+
+export interface Gestion {
+  id: string
+  operacionId: string
+  clienteId: string
+  gestor: string
+  fecha: ISODate
+  hora: string
+  canal: CanalGestion
+  resultado: ResultadoGestion
+  motivo?: MotivoNoPago
+  nota: string
+  promesaId?: string
+  proxima?: { fecha: ISODate; accion: string }
+  /** Enviada por una campaña o regla automática. */
+  automatica?: boolean
+}
+
+export interface Convenio {
+  id: string
+  operacionId: string
+  clienteId: string
+  fecha: ISODate
+  gestor: string
+  /** Vencido más recargo al firmar el convenio. */
+  deuda: number
+  inicial: number
+  cuotas: { n: number; fecha: ISODate; monto: number }[]
+  nota: string
+}
+
+export interface PasoEstrategia {
+  id: string
+  etapa: EtapaCobranza
+  /** Días respecto al vencimiento (negativo = antes). */
+  dia: number
+  canal: CanalGestion
+  accion: string
+  plantillaId?: string
+  activo: boolean
+}
+
+export interface Plantilla {
+  id: string
+  nombre: string
+  canal: Canal
+  asunto?: string
+  texto: string
+}
+
+export interface VentanaContacto {
+  canal: CanalGestion
+  dias: number[] // 0 = domingo
+  desde: string
+  hasta: string
+}
+
+export interface Feriado { fecha: ISODate; nombre: string }
+
+export interface EjecucionN8n {
+  id: string
+  flujoId: string
+  fecha: ISODate
+  hora: string
+  estado: 'Éxito' | 'Error'
+  duracionMs: number
+  registros: number
+  detalle: string
+}
+
+export interface WebhookEntrada {
+  id: string
+  nombre: string
+  ruta: string
+  evento: string
+  ultimo: string
+  recibidos7d: number
+  ejemplo: string
+}

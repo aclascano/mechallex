@@ -116,7 +116,9 @@ Hoy tiene diario, balance y conciliación. Propongo ordenarla en cinco partes:
   - Conciliación bancaria.
   - Cierre de mes con checklist (pagos aplicados, provisión, conciliación, cuadre). Bloquea el periodo cerrado.
 
-## 6. Cobranza automatizada: ampliación
+## 6. Cobranza automatizada: ampliación ✅
+
+Se separó en dos módulos: **Gestión de cobranza** (trabajo diario) y **Cobranza automatizada** (configuración).
 
 Lo que ya existe (campañas, reglas, promesas, n8n) se mantiene y se agrega:
 
@@ -187,5 +189,5 @@ Lo que ya existe (campañas, reglas, promesas, n8n) se mantiene y se agrega:
 3. Nueva obligación. ✅
 4. Pagos y Caja. ✅
 5. Riesgo: datos socioeconómicos, scoring y provisiones. ✅
-6. Cobranza ampliada.
+6. Cobranza ampliada. ✅
 7. Contabilidad (con el asiento mensual de provisiones que sale de 7.3).

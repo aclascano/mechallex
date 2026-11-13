@@ -5,12 +5,13 @@ import { Boton, Campo, Encabezado, Entrada, EsqueletoPagina, Insignia, Interrupt
 import { TRAMOS } from '../domain/cartera'
 import { fmtFecha } from '../domain/fechas'
 import type { Campania, FlujoN8n } from '../domain/tipos'
-import { cx, dinero, dineroCorto, entero, plural, porcentaje } from '../lib/formato'
+import { cx, dineroCorto, entero, plural } from '../lib/formato'
 import { useServicio } from '../lib/useServicio'
-import { alternarFlujo, alternarRegla, obtenerCobranza } from '../services/api'
+import { alternarFlujo, alternarRegla, obtenerAutomatizacion, obtenerCobranza } from '../services/api'
+import { EjecucionesN8n, Estrategia, Horarios, Plantillas } from '../components/AutomatizacionCobranza'
 import { ICONO_CANAL } from '../lib/canales'
 
-type Tab = 'campanias' | 'reglas' | 'promesas' | 'n8n'
+type Tab = 'estrategia' | 'plantillas' | 'campanias' | 'reglas' | 'horarios' | 'n8n'
 
 const TONO_ESTADO: Record<Campania['estado'], Tono> = { Activa: 'ok', Pausada: 'warn', Programada: 'acero', Finalizada: 'neutro' }
 
@@ -134,9 +135,11 @@ function IntegracionN8n({ flujos }: { flujos: FlujoN8n[] }) {
 
 export default function PaginaCobranza() {
   const { data } = useServicio(obtenerCobranza)
+  const { data: auto } = useServicio(obtenerAutomatizacion)
   const [params, setParams] = useSearchParams()
-  const tab = (params.get('tab') as Tab) ?? 'campanias'
-  if (!data) return <EsqueletoPagina />
+  const pedido = params.get('tab')
+  const tab: Tab = (['estrategia', 'plantillas', 'campanias', 'reglas', 'horarios', 'n8n'] as string[]).includes(pedido ?? '') ? (pedido as Tab) : 'estrategia'
+  if (!data || !auto) return <EsqueletoPagina />
   const activas = data.campanias.filter((c) => c.estado === 'Activa')
   const recuperado = data.campanias.reduce((s, c) => s + c.recuperado, 0)
   const enviados = activas.reduce((s, c) => s + c.enviados, 0)
@@ -146,7 +149,7 @@ export default function PaginaCobranza() {
     <div>
       <Encabezado
         titulo="Cobranza automatizada"
-        descripcion="Campañas por llamada, SMS, WhatsApp y correo, con reglas por días de mora. Las ejecuta n8n; aquí defines a quién, cuándo y con qué mensaje."
+        descripcion={<>La estrategia por etapa, los mensajes, las campañas y las reglas que ejecuta n8n. El trabajo diario de los gestores está en <Link to="/gestion" className="font-medium text-rose-ink hover:underline">Gestión de cobranza</Link>.</>}
       />
       <dl className="tabular mb-5 grid grid-cols-2 overflow-hidden rounded-[14px] border border-line bg-panel md:grid-cols-4">
         {[
@@ -164,14 +167,20 @@ export default function PaginaCobranza() {
 
       <Pestanas<Tab>
         valor={tab}
-        onCambio={(t) => setParams({ tab: t })}
+        onCambio={(t) => setParams(t === 'estrategia' ? {} : { tab: t }, { replace: true })}
         opciones={[
+          { id: 'estrategia', label: 'Estrategia por etapa' },
+          { id: 'plantillas', label: 'Plantillas', cuenta: auto.plantillas.length },
           { id: 'campanias', label: 'Campañas', cuenta: data.campanias.length },
           { id: 'reglas', label: 'Reglas', cuenta: data.reglas.length },
-          { id: 'promesas', label: 'Promesas de pago', cuenta: data.promesas.length },
+          { id: 'horarios', label: 'Horarios y feriados' },
           { id: 'n8n', label: 'Integración n8n' },
         ]}
       />
+
+      {tab === 'estrategia' && <Estrategia d={auto} />}
+      {tab === 'plantillas' && <Plantillas d={auto} />}
+      {tab === 'horarios' && <Horarios d={auto} />}
 
       {tab === 'campanias' && <Campanias campanias={data.campanias} />}
 
@@ -198,28 +207,7 @@ export default function PaginaCobranza() {
         </Panel>
       )}
 
-      {tab === 'promesas' && (
-        <Panel cuerpo="" titulo="Promesas de pago" detalle="El estado se calcula solo: cumplida si llegó un pago cerca de la fecha comprometida.">
-          <Tabla etiqueta="Promesas">
-            <thead><tr><Th>Cliente</Th><Th>Operación</Th><Th>Compromiso</Th><Th>Canal</Th><Th>Estado</Th><Th derecha>Monto</Th></tr></thead>
-            <tbody>
-              {[...data.promesas].sort((a, b) => b.fechaCompromiso.localeCompare(a.fechaCompromiso)).map((p) => (
-                <tr key={p.id}>
-                  <Td><Link to={`/clientes/${p.clienteId}`} className="font-medium hover:text-rose-ink">{p.cliente.nombre}</Link></Td>
-                  <Td><Link to={`/operaciones/${p.operacionId}`} className="text-ink-2 hover:text-rose-ink">{p.operacionId}</Link></Td>
-                  <Td className="whitespace-nowrap">{fmtFecha(p.fechaCompromiso)}</Td>
-                  <Td className="text-ink-2">{p.canal}</Td>
-                  <Td><Insignia tono={p.estado === 'Cumplida' ? 'ok' : p.estado === 'Vigente' ? 'rosa' : 'bad'}>{p.estado}</Insignia></Td>
-                  <Td derecha className="font-medium">{dinero(p.monto)}</Td>
-                </tr>
-              ))}
-            </tbody>
-          </Tabla>
-          <p className="border-t border-line px-5 py-3 text-[0.78rem] text-ink-3">Efectividad: {porcentaje(data.promesas.filter((p) => p.estado === 'Cumplida').length / Math.max(1, data.promesas.filter((p) => p.estado !== 'Vigente').length))} de las promesas vencidas se cumplieron.</p>
-        </Panel>
-      )}
-
-      {tab === 'n8n' && <IntegracionN8n flujos={data.flujos} />}
+      {tab === 'n8n' && <div className="space-y-4"><IntegracionN8n flujos={data.flujos} /><EjecucionesN8n d={auto} /></div>}
     </div>
   )
 }

@@ -25,7 +25,8 @@ Stack: Vite + React + TypeScript + Tailwind CSS v4 + Recharts, React Router (Has
 | `#/obligaciones/nueva` | Nueva obligación | Originación en seis pasos: deudor (o alta de cliente sin salir del flujo), producto y condiciones (tasa con techo, día de pago, gracia, seguro), garantes y garantías con cobertura mínima, tabla con comparación francés/alemán, aprobación con capacidad de pago y alertas, y desembolso con su asiento contable. |
 | `#/amortizacion` | Simulador | Simulación rápida francés / alemán sin crear nada. |
 | `#/pagos` | Pagos y abonos | **Registrar:** buscar la operación, elegir el valor (ponerse al día, por cuotas o valor libre) y revisar la **presimulación** cuota por cuota antes de confirmar; emite comprobante imprimible. **Consultar:** búsqueda por cliente, operación, comprobante o fecha (no lista toda la cartera), con totales y comprobante de cada pago. **Reverso** con motivo (solo pagos del día y el último de la operación) y asiento inverso. **Caja del día:** recaudado por medio, efectivo esperado, arqueo por denominación y cierre. **Recaudo masivo:** carga de archivo CSV de bancos o corresponsales, validación línea por línea y aplicación del lote. |
-| `#/cobranza` | Cobranza automatizada | Campañas (llamada, SMS, WhatsApp, correo), reglas por días de mora, promesas y la pantalla de integración con **n8n** (solo interfaz). |
+| `#/gestion` | Gestión de cobranza | **Bandeja del gestor:** cola priorizada del día (mora, promesas, acciones agendadas, cuotas por vencer), ficha resumida, guion sugerido según la etapa y registro rápido de la gestión (canal autorizado, resultado, motivo, promesa, próxima acción) con aviso de horario. **Bitácora** de gestiones, **promesas y convenios** de pago con su cumplimiento, **asignación** de cartera entre gestores (manual o balanceada) y **desempeño** por gestor y canal. |
+| `#/cobranza` | Cobranza automatizada | **Estrategia por etapa** (preventiva → judicial) con pasos editables, **plantillas** con variables y vista previa con datos reales, campañas, reglas, **horarios y feriados** de contacto, e integración con **n8n** con bitácora de ejecuciones y webhooks de entrada (solo interfaz). |
 | `#/juicios` | Juicios | Tablero kanban por etapa procesal, lista, expediente con actuaciones y costas. |
 | `#/riesgo` | Riesgo y provisiones | Calificación A1–E con su provisión, provisión requerida frente a la constituida, pérdida esperada (PD × pérdida si no paga × saldo), matriz de rodamiento estimada con 12 meses de la cartera y proyección de provisiones a 12 meses con escenarios de estrés. |
 | `#/contabilidad` | Contabilidad | Libro diario, balance de comprobación, cuadre cartera-contabilidad y conciliación bancaria. |
@@ -75,7 +76,7 @@ Las pantallas **nunca** importan de `src/mocks`: solo llaman funciones asíncron
 - **Otro conjunto aleatorio:** cambia la semilla en `crearRng(20261113)`.
 - **Garantes y garantías:** `src/mocks/garantias.ts`; la cobertura mínima por producto está en `COBERTURA_MINIMA` (`src/domain/operacion.ts`).
 - **Condiciones de producto para nuevas obligaciones** (comisión, seguro, gracia máxima): `CONDICIONES_PRODUCTO` en `src/mocks/catalogos.ts`; rangos de tasa, plazo y monto en `PRODUCTOS`.
-- **Campañas, reglas, flujos n8n y plan de cuentas:** `src/mocks/cobranza.ts`.
+- **Campañas, reglas, flujos n8n y plan de cuentas:** `src/mocks/cobranza.ts`. Gestiones, convenios, estrategia, plantillas, horarios, feriados y webhooks: `src/mocks/gestiones.ts`.
 - **Fecha de corte:** `HOY` en `src/mocks/catalogos.ts`.
 
 ## Cómo conectarlo a una API real

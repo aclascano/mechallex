@@ -4,6 +4,7 @@ import { Link, useParams, useSearchParams } from 'react-router'
 import { Aviso, Boton, Dato, Encabezado, EsqueletoPagina, Insignia, InsigniaTramo, Panel, Pestanas, RecorridoCobranza, Tabla, Td, Th, Vacio } from '../components/ui'
 import { ComportamientoPago } from '../components/ComportamientoPago'
 import { MedidorRiesgo } from '../components/MedidorRiesgo'
+import { ListaGestiones, ResumenConvenio } from '../components/ListaGestiones'
 import { CANALES, capacidadPago, mesesDesdeActualizacion, VIGENCIA_SOCIO_MESES } from '../domain/clientes'
 import { diffDays, fmtFecha } from '../domain/fechas'
 import type { CambioCliente, Cliente } from '../domain/tipos'
@@ -93,7 +94,7 @@ export default function PaginaCliente() {
           { id: 'operaciones', label: 'Operaciones', cuenta: d.operaciones.length },
           { id: 'garantias', label: 'Garantías que presta', cuenta: d.garantiasPrestadas.length },
           { id: 'pagos', label: 'Pagos', cuenta: d.pagos.length },
-          { id: 'cobranza', label: 'Cobranza', cuenta: d.promesas.length + d.juicios.length },
+          { id: 'cobranza', label: 'Cobranza', cuenta: d.gestiones.length },
           { id: 'historial', label: 'Historial', cuenta: d.historial.length },
         ]}
       />
@@ -135,6 +136,8 @@ export default function PaginaCliente() {
       {tab === 'pagos' && <TablaPagos pagos={d.pagos} titulo="Pagos registrados" alto />}
       {tab === 'cobranza' && (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          {d.convenios.map((cv) => <ResumenConvenio key={cv.id} c={cv} />)}
+          <div className="xl:col-span-2"><ListaGestiones gestiones={d.gestiones} conOperacion /></div>
           <Panel titulo="Promesas de pago" cuerpo="">
             {d.promesas.length === 0 ? <Vacio titulo="Sin promesas registradas" /> : (
               <ul className="divide-y divide-line">

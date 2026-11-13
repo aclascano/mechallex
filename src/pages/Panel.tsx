@@ -190,7 +190,7 @@ function Promesas({ d }: { d: DatosPanel }) {
     { label: 'Incumplidas', n: d.promesasIncumplidas, color: 'var(--bad)' },
   ]
   return (
-    <Caja titulo="Promesas de pago" detalle="Compromisos registrados por gestores y campañas" acciones={<Link to="/cobranza?tab=promesas" className="text-[0.8rem] font-medium text-rose-ink hover:underline">Ver todas</Link>}>
+    <Caja titulo="Promesas de pago" detalle="Compromisos registrados por gestores y campañas" acciones={<Link to="/gestion?tab=compromisos" className="text-[0.8rem] font-medium text-rose-ink hover:underline">Ver todas</Link>}>
       <div className="flex h-2.5 overflow-hidden rounded-full" role="img" aria-label={partes.map((p) => `${p.label}: ${p.n}`).join(', ')}>
         {partes.map((p) => (
           <span key={p.label} style={{ width: `${(p.n / total) * 100}%`, background: p.color }} className="h-full first:rounded-l-full last:rounded-r-full [&+&]:ml-[2px]" />
